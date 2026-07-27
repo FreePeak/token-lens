@@ -6,6 +6,7 @@ import {
   upsertSession,
   upsertTurn,
 } from "../db/queries";
+import { normalizeToolLabel } from "../shared/tools";
 import type { HookPayload } from "../shared/types";
 
 function convId(p: HookPayload): string | null {
@@ -19,11 +20,20 @@ function workspace(p: HookPayload): string | null {
 }
 
 function toolName(p: HookPayload): string {
-  if (typeof p.tool_name === "string" && p.tool_name) return p.tool_name;
-  // Some payloads nest tool name
-  const nested = (p as { tool?: { name?: string } }).tool?.name;
-  if (nested) return nested;
-  return "unknown";
+  let name = "unknown";
+  if (typeof p.tool_name === "string" && p.tool_name) name = p.tool_name;
+  else {
+    const nested = (p as { tool?: { name?: string } }).tool?.name;
+    if (nested) name = nested;
+  }
+  const input = p.tool_input;
+  const params =
+    typeof input === "string"
+      ? input
+      : input != null
+        ? JSON.stringify(input)
+        : null;
+  return normalizeToolLabel(name, { params });
 }
 
 export function handleHook(db: Database, payload: HookPayload): void {

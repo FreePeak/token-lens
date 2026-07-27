@@ -15,11 +15,12 @@ export function upsertSession(
     ended_at?: number | null;
     duration_ms?: number | null;
     source?: string;
+    first_prompt?: string | null;
   },
 ): void {
   db.run(
-    `INSERT INTO sessions (conversation_id, title, workspace, model, mode, started_at, ended_at, duration_ms, source)
-     VALUES ($id, $title, $ws, $model, $mode, $start, $end, $dur, $source)
+    `INSERT INTO sessions (conversation_id, title, workspace, model, mode, started_at, ended_at, duration_ms, source, first_prompt)
+     VALUES ($id, $title, $ws, $model, $mode, $start, $end, $dur, $source, $fp)
      ON CONFLICT(conversation_id) DO UPDATE SET
        title = COALESCE(excluded.title, sessions.title),
        workspace = COALESCE(excluded.workspace, sessions.workspace),
@@ -28,6 +29,7 @@ export function upsertSession(
        started_at = COALESCE(sessions.started_at, excluded.started_at),
        ended_at = COALESCE(excluded.ended_at, sessions.ended_at),
        duration_ms = COALESCE(excluded.duration_ms, sessions.duration_ms),
+       first_prompt = COALESCE(excluded.first_prompt, sessions.first_prompt),
        source = CASE WHEN sessions.source = 'backfill' AND excluded.source = 'hook' THEN 'hook'
                      ELSE sessions.source END`,
     {
@@ -40,6 +42,7 @@ export function upsertSession(
       $end: row.ended_at ?? null,
       $dur: row.duration_ms ?? null,
       $source: row.source ?? "hook",
+      $fp: row.first_prompt ?? null,
     },
   );
 }
@@ -226,9 +229,9 @@ export function recomputeRollup(db: Database, conversationId: string): void {
     `INSERT INTO session_rollups (
        conversation_id, title, workspace, model, mode, started_at, ended_at, duration_ms,
        num_turns, tool_calls, file_reads, input_tokens, output_tokens, total_tokens, total_cost_usd,
-       tokens_estimated, used_leankg, leankg_calls, search_calls
+       tokens_estimated, used_leankg, leankg_calls, search_calls, first_prompt
      ) VALUES ($id, $title, $ws, $model, $mode, $start, $end, $dur, $turns, $tools, $reads, $in, $out, $tot, $cost,
-       $est, $lk, $lkc, $sc)
+       $est, $lk, $lkc, $sc, $fp)
      ON CONFLICT(conversation_id) DO UPDATE SET
        title = excluded.title,
        workspace = excluded.workspace,
@@ -247,7 +250,8 @@ export function recomputeRollup(db: Database, conversationId: string): void {
        tokens_estimated = excluded.tokens_estimated,
        used_leankg = excluded.used_leankg,
        leankg_calls = excluded.leankg_calls,
-       search_calls = excluded.search_calls`,
+       search_calls = excluded.search_calls,
+       first_prompt = excluded.first_prompt`,
     {
       $id: conversationId,
       $title: session.title ?? null,
@@ -268,6 +272,7 @@ export function recomputeRollup(db: Database, conversationId: string): void {
       $lk: leankg > 0 ? 1 : 0,
       $lkc: leankg,
       $sc: search,
+      $fp: (session.first_prompt as string | null) ?? null,
     },
   );
 }

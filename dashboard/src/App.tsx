@@ -142,7 +142,7 @@ function Overview({
           />
         </div>
         <div className="panel">
-          <h2>Tool calls by name</h2>
+          <h2>Top tools by call volume</h2>
           <BarList
             rows={byTool.map((r) => ({
               label: r.key,
@@ -249,7 +249,7 @@ function Sessions({
 }
 
 function Drivers({ days, onError }: { days?: number; onError: (e: string | null) => void }) {
-  const [by, setBy] = useState<"tool" | "model" | "workspace">("model");
+  const [by, setBy] = useState<"tool" | "model" | "workspace">("tool");
   const [rows, setRows] = useState<DriverRow[]>([]);
 
   useEffect(() => {
@@ -351,9 +351,40 @@ function Detail({
           value={`${d.tokens_estimated ? "~" : ""}${fmtCost(d.total_cost_usd)}`}
         />
       </div>
+      <div className="panel" style={{ marginBottom: "1rem" }}>
+        <h2>First user prompt</h2>
+        <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+          {d.first_prompt?.trim() || <span className="muted">No user text captured</span>}
+        </p>
+        <div className="controls" style={{ marginTop: "0.75rem", gap: "1rem", flexWrap: "wrap" }}>
+          <span>
+            Search / LeanKG:{" "}
+            <strong>
+              {fmtNum(d.search_calls ?? 0)} / {fmtNum(d.leankg_calls ?? 0)}
+            </strong>
+            {(d.leankg_calls ?? 0) === 0 && (d.search_calls ?? 0) > 20 ? (
+              <span className="muted"> · high search without LeanKG</span>
+            ) : null}
+          </span>
+          <span>
+            Tokens / turn:{" "}
+            <strong>
+              {d.num_turns
+                ? `${d.tokens_estimated ? "~" : ""}${fmtNum(Math.round(d.total_tokens / d.num_turns))}`
+                : "—"}
+            </strong>
+          </span>
+          <span>
+            Tools / turn:{" "}
+            <strong>
+              {d.num_turns ? (d.tool_calls / d.num_turns).toFixed(1) : "—"}
+            </strong>
+          </span>
+        </div>
+      </div>
       <div className="two-col">
         <div className="panel">
-          <h2>Tools (cost drivers)</h2>
+          <h2>Named tools (call volume)</h2>
           <BarList
             rows={d.tools.map((t) => ({
               label: t.tool_name,
@@ -415,7 +446,7 @@ function BarList({
     <div>
       {rows.map((r) => (
         <div className="bar-row" key={r.label}>
-          <span title={r.label}>{r.label.length > 22 ? `${r.label.slice(0, 20)}…` : r.label}</span>
+          <span title={r.label}>{r.label.length > 36 ? `${r.label.slice(0, 34)}…` : r.label}</span>
           <div className="bar-track">
             <div className="bar-fill" style={{ width: `${(r.value / max) * 100}%` }} />
           </div>

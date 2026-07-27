@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
-import { backfillFromCursor } from "./collector/backfill";
+import { backfillAllProfiles } from "./collector/backfill";
 import { handleHook } from "./collector/hook";
 import { installHooks } from "./collector/install-hooks";
-import { openMetricsDb, METRICS_DB_PATH } from "./db/schema";
+import { openMetricsDb, METRICS_DB_PATH, discoverCursorStateDbs } from "./db/schema";
 import { startServer } from "./server/api";
 import type { HookPayload } from "./shared/types";
 
@@ -24,12 +24,13 @@ function usage(): void {
   console.log(`cursor-metrics — local Cursor chat session metrics
 
 Usage:
-  cursor-metrics backfill          Import historical sessions from Cursor state.vscdb
+  cursor-metrics backfill          Import historical sessions from all Cursor profile state.vscdbs
   cursor-metrics serve [--port N]  API + dashboard on http://localhost:3847
   cursor-metrics install-hooks     Wire user hooks at ~/.cursor/hooks.json
   cursor-metrics hook              (internal) read hook JSON from stdin
 
 Metrics DB: ${METRICS_DB_PATH}
+Discovers: Application Support/Cursor|Cur + ~/.cursor|~/.cur globalStorage state.vscdb
 `);
 }
 
@@ -67,10 +68,14 @@ async function main(): Promise<void> {
   if (cmd === "backfill") {
     const db = openMetricsDb();
     try {
-      console.log("Backfilling from Cursor state.vscdb …");
-      const result = backfillFromCursor(db);
+      const paths = discoverCursorStateDbs();
+      console.log(`Backfilling ${paths.length} Cursor profile DB(s):`);
+      for (const p of paths) console.log(`  ${p}`);
+      const t0 = performance.now();
+      const result = backfillAllProfiles(db);
+      const sec = ((performance.now() - t0) / 1000).toFixed(1);
       console.log(
-        `Done. sessions=${result.sessions} token_bubbles=${result.bubbles} tool_calls=${result.toolCalls} estimated=${result.estimatedSessions}`,
+        `Done in ${sec}s. sessions=${result.sessions} token_bubbles=${result.bubbles} tool_calls=${result.toolCalls} estimated=${result.estimatedSessions} skipped_huge=${result.skippedHuge}`,
       );
       console.log(`DB: ${METRICS_DB_PATH}`);
     } finally {

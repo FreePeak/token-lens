@@ -18,6 +18,7 @@ export type SessionRollup = {
   used_leankg?: number;
   leankg_calls?: number;
   search_calls?: number;
+  first_prompt?: string | null;
 };
 
 export type OverviewStats = {

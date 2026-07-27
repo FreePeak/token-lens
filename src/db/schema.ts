@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
+import { existsSync, mkdirSync, statSync } from "fs";
 import { homedir } from "os";
-import { mkdirSync } from "fs";
 import { join } from "path";
 
 export const METRICS_DIR = join(homedir(), ".cursor-metrics");
@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   started_at INTEGER,
   ended_at INTEGER,
   duration_ms INTEGER,
-  source TEXT DEFAULT 'hook'
+  source TEXT DEFAULT 'hook',
+  first_prompt TEXT
 );
 
 CREATE TABLE IF NOT EXISTS turns (
@@ -83,7 +84,8 @@ CREATE TABLE IF NOT EXISTS session_rollups (
   tokens_estimated INTEGER NOT NULL DEFAULT 0,
   used_leankg INTEGER NOT NULL DEFAULT 0,
   leankg_calls INTEGER NOT NULL DEFAULT 0,
-  search_calls INTEGER NOT NULL DEFAULT 0
+  search_calls INTEGER NOT NULL DEFAULT 0,
+  first_prompt TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_rollups_started ON session_rollups(started_at);
@@ -112,21 +114,79 @@ function migrate(db: Database): void {
   if (!tcols.has("estimated")) {
     db.exec(`ALTER TABLE token_snapshots ADD COLUMN estimated INTEGER NOT NULL DEFAULT 0`);
   }
+
+  const scols = new Set(
+    (db.query(`PRAGMA table_info(sessions)`).all() as Array<{ name: string }>).map((c) => c.name),
+  );
+  if (!scols.has("first_prompt")) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN first_prompt TEXT`);
+  }
+  add("first_prompt", "first_prompt TEXT");
 }
 
 export function openMetricsDb(path = METRICS_DB_PATH): Database {
   mkdirSync(METRICS_DIR, { recursive: true });
   const db = new Database(path, { create: true });
   db.exec("PRAGMA journal_mode = WAL;");
+  db.exec("PRAGMA busy_timeout = 30000;");
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec(SCHEMA);
   migrate(db);
   return db;
 }
 
+/** Candidate globalStorage state.vscdb roots (macOS Cursor / Cur / ~/.cursor / ~/.cur). */
+export function cursorStateDbCandidates(): string[] {
+  const home = homedir();
+  return [
+    join(home, "Library/Application Support/Cursor/User/globalStorage/state.vscdb"),
+    join(home, "Library/Application Support/Cur/User/globalStorage/state.vscdb"),
+    join(home, ".cursor/User/globalStorage/state.vscdb"),
+    join(home, ".cur/User/globalStorage/state.vscdb"),
+    join(home, ".config/Cursor/User/globalStorage/state.vscdb"),
+  ];
+}
+
 export function cursorStateDbPath(): string {
-  return join(
-    homedir(),
-    "Library/Application Support/Cursor/User/globalStorage/state.vscdb",
-  );
+  return discoverCursorStateDbs()[0] ?? cursorStateDbCandidates()[0]!;
+}
+
+/** Existing state DBs that look like they hold composer/bubble data. */
+export function discoverCursorStateDbs(): string[] {
+  const out: string[] = [];
+  for (const path of cursorStateDbCandidates()) {
+    if (!existsSync(path)) continue;
+    try {
+      const size = statSync(path).size;
+      if (size < 1024) continue;
+      const db = new Database(`file:${path}?mode=ro`, { readonly: true, create: false });
+      try {
+        const kv = db
+          .query(`SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='cursorDiskKV'`)
+          .get() as { ok: number } | null;
+        if (!kv) continue;
+        const hasHeaders = db
+          .query(
+            `SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='composerHeaders'`,
+          )
+          .get() as { ok: number } | null;
+        // Prefer header table; skip expensive bubble probes on huge DBs without headers
+        if (hasHeaders) {
+          const n = db.query(`SELECT 1 AS ok FROM composerHeaders LIMIT 1`).get();
+          if (n) out.push(path);
+          continue;
+        }
+        if (size > 50 * 1024 * 1024) continue; // ponytail: no headers + huge = not our profile
+        const bubble = db
+          .query(`SELECT 1 AS ok FROM cursorDiskKV WHERE key GLOB 'bubbleId:*' LIMIT 1`)
+          .get();
+        if (bubble) out.push(path);
+      } finally {
+        db.close();
+      }
+    } catch {
+      /* unreadable */
+    }
+  }
+  return out;
 }

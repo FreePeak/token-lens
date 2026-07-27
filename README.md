@@ -13,7 +13,7 @@ cd cursor-metrics
 bun install
 cd dashboard && bun install && cd ..
 
-# Import historical chats from Cursor's local SQLite
+# Import historical chats from all discovered Cursor profile DBs
 bun run backfill
 
 # Wire live capture (user-level hooks for all projects)
@@ -41,6 +41,20 @@ Dev UI (API must be running): `bun run serve` in one terminal, `cd dashboard && 
 | Duration | `sessionStart` → `sessionEnd` | Header timestamps |
 
 Re-run `bun run backfill` periodically to refresh token totals from Cursor's DB (hooks do not receive billed token counts).
+
+## Profile data sources (backfill)
+
+Backfill scans every **existing** `User/globalStorage/state.vscdb` that holds composer/bubble data among:
+
+| Path | Role on this machine |
+|------|----------------------|
+| `~/Library/Application Support/Cursor/…/state.vscdb` | Main Cursor app (macOS) — usually the large DB |
+| `~/.cur/User/globalStorage/state.vscdb` | Separate Cursor-family data root (not a symlink to `~/.cursor`) when present |
+| `~/.cursor/User/globalStorage/state.vscdb` | Rarely has composer bubbles; `~/.cursor` is mainly hooks/extensions/projects |
+| `~/Library/Application Support/Cur/…/state.vscdb` | Alternate “Cur” app support dir (included only if it has real bubble/header data) |
+| `~/.config/Cursor/…/state.vscdb` | Linux Cursor |
+
+Empty or header-less stubs are skipped. Backfill is a **single-pass** read of `bubbleId:%` keys (not one `LIKE` per composer).
 
 ## Pricing
 

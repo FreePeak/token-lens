@@ -1,0 +1,23 @@
+{
+  "name": "cursor-metrics",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "cursor-metrics": "./src/cli.ts"
+  },
+  "scripts": {
+    "backfill": "bun run src/cli.ts backfill",
+    "serve": "bun run src/cli.ts serve",
+    "hook": "bun run src/cli.ts hook",
+    "install-hooks": "bun run src/cli.ts install-hooks",
+    "dashboard:dev": "cd dashboard && bun run dev",
+    "dashboard:build": "cd dashboard && bun run build",
+    "dashboard:install": "cd dashboard && bun install",
+    "dev": "bun run src/cli.ts serve"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.2"
+  }
+}

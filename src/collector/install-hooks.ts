@@ -54,15 +54,6 @@ fi
 
   for (const ev of EVENTS) {
     const list = Array.isArray(existing.hooks[ev]) ? [...existing.hooks[ev]!] : [];
-    // Match the new name OR the legacy `cursor-metrics-hook` so we can replace it cleanly.
-    const already = list.some(
-      (h) =>
-        typeof h === "object" &&
-        h != null &&
-        "command" in h &&
-        (String((h as { command: string }).command).includes("token-lens-hook") ||
-          String((h as { command: string }).command).includes("cursor-metrics-hook")),
-    );
     // Drop the legacy entry so we don't accumulate two hooks after renaming.
     const dedup = list.filter(
       (h) =>
@@ -70,10 +61,11 @@ fi
           typeof h === "object" &&
           h != null &&
           "command" in h &&
-          String((h as { command: string }).command).includes("cursor-metrics-hook")
+          (String((h as { command: string }).command).includes("token-lens-hook") ||
+            String((h as { command: string }).command).includes("cursor-metrics-hook"))
         ),
     );
-    if (!already) dedup.push({ command });
+    dedup.push({ command });
     existing.hooks[ev] = dedup;
   }
 

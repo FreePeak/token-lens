@@ -136,7 +136,7 @@ async function main(): Promise<void> {
   if (cmd === "sync-usage") {
     const days = argNum(args, "--days") ?? 7;
     const profile = argStr(args, "--profile") ?? "all";
-    const { loadUsageProfiles, SESSION_TOKEN_FILE, USAGE_PROFILES_FILE } = await import("./collector/sync-usage");
+    const { loadUsageProfiles, syncUsageProfiles, SESSION_TOKEN_FILE, USAGE_PROFILES_FILE } = await import("./collector/sync-usage");
     if (!loadUsageProfiles().length) {
       console.error(
         `Missing usage profiles.\n  Write ${USAGE_PROFILES_FILE} with ".cur" / ".cursor" tokens\n  or: export CURSOR_SESSION_TOKEN=… / ${SESSION_TOKEN_FILE}`,

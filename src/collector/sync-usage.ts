@@ -331,7 +331,21 @@ export async function syncUsageFromDashboard(
       const tu = ev.tokenUsage ?? {};
       const cr = Number(tu.cacheReadTokens ?? 0) || 0;
       const cw = Number(tu.cacheWriteTokens ?? 0) || 0;
-      if (!cr && !cw) continue;
+      if (!cr && !cw) {
+        // Still capture model from API for sessions that backfill missed (auto agent)
+        if (!touched.has(cid)) {
+          const row = db
+            .query(`SELECT model, profile FROM sessions WHERE conversation_id = ?`)
+            .get(cid) as { model: string | null; profile: string | null } | null;
+          const apiModel = ev.model && ev.model !== "default" ? ev.model : null;
+          if (row && !row.model && apiModel) {
+            db.run(`UPDATE sessions SET model = ? WHERE conversation_id = ?`, [apiModel, cid]);
+            sessionModels.set(cid, apiModel);
+            touched.add(cid);
+          }
+        }
+        continue;
+      }
 
       if (!touched.has(cid)) {
         db.run(
@@ -354,7 +368,12 @@ export async function syncUsageFromDashboard(
           });
           sessionModels.set(cid, stubModel);
         } else {
-          sessionModels.set(cid, row.model);
+          const apiModel = ev.model && ev.model !== "default" ? ev.model : null;
+          // Fill session model when backfill couldn't (auto agent bubbles have null modelInfo)
+          if (apiModel && !row.model) {
+            db.run(`UPDATE sessions SET model = ? WHERE conversation_id = ?`, [apiModel, cid]);
+          }
+          sessionModels.set(cid, apiModel ?? row.model);
           // Fill profile only when missing (don't overwrite backfill attribution)
           if (!row.profile && profileName) {
             db.run(`UPDATE sessions SET profile = ? WHERE conversation_id = ? AND profile IS NULL`, [

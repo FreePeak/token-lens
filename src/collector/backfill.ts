@@ -27,6 +27,8 @@ type ComposerHeader = {
   lastUpdatedAt?: number;
   unifiedMode?: string;
   workspaceIdentifier?: { id?: string } | string;
+  model?: string;
+  modelName?: string;
 };
 
 type Bubble = {
@@ -58,6 +60,7 @@ type ComposerMeta = {
   lastUpdatedAt: number | null;
   title: string | null;
   mode: string | null;
+  model: string | null;
 };
 
 function decodeValue(v: unknown): string {
@@ -167,6 +170,7 @@ function loadComposers(cursor: Database): ComposerMeta[] {
       lastUpdatedAt: row.lastUpdatedAt ?? parsed.lastUpdatedAt ?? null,
       title: parsed.name ?? parsed.subtitle ?? null,
       mode: parsed.unifiedMode ?? null,
+      model: parsed.model ?? parsed.modelName ?? null,
     });
   }
   return composers;
@@ -494,6 +498,7 @@ export async function backfillFromCursor(
           conversation_id: c.composerId,
           title: c.title,
           workspace: c.workspaceId,
+          model: c.model,
           mode: c.mode,
           started_at: c.createdAt,
           ended_at: c.lastUpdatedAt,

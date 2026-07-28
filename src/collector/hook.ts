@@ -4,10 +4,14 @@ import {
   insertToolCall,
   recomputeRollup,
   upsertSession,
+  upsertTokenSnapshot,
   upsertTurn,
 } from "../db/queries";
 import { normalizeToolLabel } from "../shared/tools";
 import type { HookPayload } from "../shared/types";
+
+/** Live hooks install under ~/.cursor — attribute to that profile. */
+const HOOK_PROFILE = ".cursor";
 
 function convId(p: HookPayload): string | null {
   return p.conversation_id ?? p.session_id ?? null;
@@ -36,6 +40,10 @@ function toolName(p: HookPayload): string {
   return normalizeToolLabel(name, { params });
 }
 
+function num(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
+
 export function handleHook(db: Database, payload: HookPayload): void {
   const event = payload.hook_event_name ?? "unknown";
   const id = convId(payload);
@@ -50,6 +58,7 @@ export function handleHook(db: Database, payload: HookPayload): void {
       mode: payload.composer_mode ?? null,
       started_at: now,
       source: "hook",
+      profile: HOOK_PROFILE,
     });
     recomputeRollup(db, id);
     return;
@@ -63,6 +72,7 @@ export function handleHook(db: Database, payload: HookPayload): void {
     model: payload.model_id ?? payload.model ?? null,
     mode: payload.composer_mode ?? null,
     source: "hook",
+    profile: HOOK_PROFILE,
   });
 
   switch (event) {
@@ -72,6 +82,7 @@ export function handleHook(db: Database, payload: HookPayload): void {
         ended_at: now,
         duration_ms: typeof payload.duration_ms === "number" ? payload.duration_ms : null,
         source: "hook",
+        profile: HOOK_PROFILE,
       });
       break;
     }
@@ -118,13 +129,28 @@ export function handleHook(db: Database, payload: HookPayload): void {
       break;
     }
     case "afterAgentResponse": {
-      // Ensure a turn exists for this generation even if stop hasn't fired yet
-      if (payload.generation_id) {
-        upsertTurn(db, {
+      const gen = payload.generation_id ?? `aar-${now}`;
+      upsertTurn(db, {
+        conversation_id: id,
+        generation_id: gen,
+        status: "responded",
+        ended_at: now,
+      });
+      const input = num(payload.input_tokens);
+      const output = num(payload.output_tokens);
+      const cacheRead = num(payload.cache_read_tokens);
+      const cacheWrite = num(payload.cache_write_tokens);
+      if (input || output || cacheRead || cacheWrite) {
+        upsertTokenSnapshot(db, {
           conversation_id: id,
-          generation_id: payload.generation_id,
-          status: "responded",
-          ended_at: now,
+          bubble_id: `hook:${gen}`,
+          input_tokens: input,
+          output_tokens: output,
+          cache_read_tokens: cacheRead,
+          cache_write_tokens: cacheWrite,
+          model: payload.model_id ?? payload.model ?? null,
+          created_at: now,
+          estimated: false,
         });
       }
       break;

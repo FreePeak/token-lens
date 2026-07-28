@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   api,
   fmtCost,
+  fmtDate,
   fmtDuration,
   fmtNum,
   shortTitle,
@@ -10,6 +11,7 @@ import {
   type OverviewStats,
   type SessionDetail,
   type SessionRollup,
+  type SessionSort,
 } from "./api";
 
 type Page = "overview" | "sessions" | "drivers" | "detail";
@@ -17,8 +19,14 @@ type Page = "overview" | "sessions" | "drivers" | "detail";
 export function App() {
   const [page, setPage] = useState<Page>("overview");
   const [days, setDays] = useState<number | undefined>(30);
+  const [profile, setProfile] = useState<string | undefined>();
+  const [profiles, setProfiles] = useState<string[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.profiles().then(setProfiles).catch((e) => setError(String(e)));
+  }, []);
 
   function openSession(id: string) {
     setSessionId(id);
@@ -66,16 +74,25 @@ export function App() {
             <option value="all">All time</option>
           </select>
         </label>
+        <span>Profile</span>
+        <button className={!profile ? "active" : ""} onClick={() => setProfile(undefined)}>
+          all
+        </button>
+        {profiles.map((p) => (
+          <button key={p} className={profile === p ? "active" : ""} onClick={() => setProfile(p)}>
+            {p}
+          </button>
+        ))}
         <span className="muted">Local only · costs are estimates from prices.json</span>
       </div>
 
       {error && <div className="error">{error}</div>}
 
-      {page === "overview" && <Overview days={days} onError={setError} />}
+      {page === "overview" && <Overview days={days} profile={profile} onError={setError} />}
       {page === "sessions" && (
-        <Sessions days={days} onError={setError} onOpen={openSession} />
+        <Sessions days={days} profile={profile} onError={setError} onOpen={openSession} />
       )}
-      {page === "drivers" && <Drivers days={days} onError={setError} />}
+      {page === "drivers" && <Drivers days={days} profile={profile} onError={setError} />}
       {page === "detail" && sessionId && (
         <Detail
           id={sessionId}
@@ -92,9 +109,11 @@ export function App() {
 
 function Overview({
   days,
+  profile,
   onError,
 }: {
   days?: number;
+  profile?: string;
   onError: (e: string | null) => void;
 }) {
   const [stats, setStats] = useState<OverviewStats | null>(null);
@@ -104,9 +123,9 @@ function Overview({
   useEffect(() => {
     onError(null);
     Promise.all([
-      api.overview(days),
-      api.drivers("model", days),
-      api.drivers("tool", days),
+      api.overview(days, profile),
+      api.drivers("model", days, profile),
+      api.drivers("tool", days, profile),
     ])
       .then(([o, m, t]) => {
         setStats(o);
@@ -114,7 +133,7 @@ function Overview({
         setByTool(t.slice(0, 8));
       })
       .catch((e) => onError(String(e)));
-  }, [days, onError]);
+  }, [days, profile, onError]);
 
   if (!stats) return <p className="muted">Loading…</p>;
 
@@ -125,6 +144,8 @@ function Overview({
         <Stat label="Turns" value={fmtNum(stats.num_turns)} />
         <Stat label="Tool calls" value={fmtNum(stats.tool_calls)} />
         <Stat label="File reads" value={fmtNum(stats.file_reads)} />
+        <Stat label="Cache read tok" value={fmtNum(stats.cache_reads ?? 0)} />
+        <Stat label="Cache write tok" value={fmtNum(stats.cache_writes ?? 0)} />
         <Stat label="Input tok" value={fmtNum(stats.input_tokens)} />
         <Stat label="Output tok" value={fmtNum(stats.output_tokens)} />
         <Stat label="Total tok" value={fmtNum(stats.total_tokens)} />
@@ -158,34 +179,69 @@ function Overview({
 
 function Sessions({
   days,
+  profile,
   onError,
   onOpen,
 }: {
   days?: number;
+  profile?: string;
   onError: (e: string | null) => void;
   onOpen: (id: string) => void;
 }) {
   const [rows, setRows] = useState<SessionRollup[]>([]);
   const [leankgOnly, setLeankgOnly] = useState<"all" | "yes" | "no">("all");
+  const [sortBy, setSortBy] = useState<SessionSort>("date");
 
   useEffect(() => {
     onError(null);
     api
-      .sessions(days)
+      .sessions(days, profile, sortBy)
       .then(setRows)
       .catch((e) => onError(String(e)));
-  }, [days, onError]);
+  }, [days, profile, sortBy, onError]);
 
-  const filtered = rows.filter((r) => {
-    if (leankgOnly === "yes") return !!r.used_leankg;
-    if (leankgOnly === "no") return !r.used_leankg;
-    return true;
-  });
+  const filtered = useMemo(() => {
+    return rows.filter((r) => {
+      if (leankgOnly === "yes") return !!r.used_leankg;
+      if (leankgOnly === "no") return !r.used_leankg;
+      return true;
+    });
+  }, [rows, leankgOnly]);
+
+  const sortLabel =
+    sortBy === "date" ? "date (newest first)" : sortBy === "cost" ? "est. cost" : "duration";
+
+  function SortTh({
+    id,
+    label,
+    num,
+  }: {
+    id: SessionSort;
+    label: string;
+    num?: boolean;
+  }) {
+    return (
+      <th
+        className={`sortable${num ? " num" : ""}${sortBy === id ? " sorted" : ""}`}
+        onClick={() => setSortBy(id)}
+        title={`Sort by ${label.toLowerCase()}`}
+      >
+        {label}
+        {sortBy === id ? " ↓" : ""}
+      </th>
+    );
+  }
 
   return (
     <div className="panel" style={{ overflowX: "auto" }}>
       <div className="controls" style={{ marginBottom: "0.75rem" }}>
         <h2 style={{ margin: 0, flex: 1 }}>Sessions ({filtered.length})</h2>
+        <span>Sort</span>
+        {(["date", "cost", "duration"] as const).map((v) => (
+          <button key={v} className={sortBy === v ? "active" : ""} onClick={() => setSortBy(v)}>
+            {v}
+          </button>
+        ))}
         <span>LeanKG</span>
         {(["all", "yes", "no"] as const).map((v) => (
           <button key={v} className={leankgOnly === v ? "active" : ""} onClick={() => setLeankgOnly(v)}>
@@ -194,28 +250,32 @@ function Sessions({
         ))}
       </div>
       <p className="muted" style={{ marginTop: 0 }}>
-        Sorted by est. cost. "~" = tokens estimated (Cursor left tokenCount at 0). Waste signal: high Search vs LeanKG.
+        Sorted by {sortLabel}. Click Date / Cost / Duration headers. "~" = tokens estimated. Waste signal: high Search vs LeanKG.
       </p>
       <table>
         <thead>
           <tr>
             <th>Session</th>
+            <SortTh id="date" label="Date" />
             <th>Model</th>
             <th>LeanKG</th>
             <th className="num">Turns</th>
             <th className="num">Tools</th>
             <th className="num">Search</th>
             <th className="num">Reads</th>
+            <th className="num">Cache R tok</th>
+            <th className="num">Cache W tok</th>
             <th className="num">In</th>
             <th className="num">Out</th>
-            <th className="num">Cost</th>
-            <th className="num">Duration</th>
+            <SortTh id="cost" label="Cost" num />
+            <SortTh id="duration" label="Duration" num />
           </tr>
         </thead>
         <tbody>
           {filtered.map((r) => (
             <tr key={r.conversation_id} className="clickable" onClick={() => onOpen(r.conversation_id)}>
               <td>{shortTitle(r)}</td>
+              <td className="muted">{fmtDate(r.started_at)}</td>
               <td className="muted">{r.model ?? "—"}</td>
               <td>
                 {r.used_leankg
@@ -226,6 +286,8 @@ function Sessions({
               <td className="num">{fmtNum(r.tool_calls)}</td>
               <td className="num">{fmtNum(r.search_calls ?? 0)}</td>
               <td className="num">{fmtNum(r.file_reads)}</td>
+              <td className="num">{fmtNum(r.cache_reads ?? 0)}</td>
+              <td className="num">{fmtNum(r.cache_writes ?? 0)}</td>
               <td className="num">
                 {r.tokens_estimated ? "~" : ""}
                 {fmtNum(r.input_tokens)}
@@ -248,17 +310,25 @@ function Sessions({
   );
 }
 
-function Drivers({ days, onError }: { days?: number; onError: (e: string | null) => void }) {
+function Drivers({
+  days,
+  profile,
+  onError,
+}: {
+  days?: number;
+  profile?: string;
+  onError: (e: string | null) => void;
+}) {
   const [by, setBy] = useState<"tool" | "model" | "workspace">("tool");
   const [rows, setRows] = useState<DriverRow[]>([]);
 
   useEffect(() => {
     onError(null);
     api
-      .drivers(by, days)
+      .drivers(by, days, profile)
       .then(setRows)
       .catch((e) => onError(String(e)));
-  }, [by, days, onError]);
+  }, [by, days, profile, onError]);
 
   return (
     <div className="panel">
@@ -318,10 +388,28 @@ function Detail({
 
   const tokenSeries = useMemo(() => {
     if (!d) return [];
-    return d.token_snapshots.map((s, i) => ({
-      label: `#${i + 1}`,
-      value: s.input_tokens + s.output_tokens,
-      display: fmtNum(s.input_tokens + s.output_tokens),
+    // one bar per user turn: user bubble (has prompt) opens a group; following
+    // assistant/tool bubbles accumulate until the next user prompt
+    const groups: Array<{ label: string; value: number }> = [];
+    let cur: { label: string; value: number } | null = null;
+    let turn = 0;
+    for (const s of d.token_snapshots) {
+      const p = s.prompt?.trim();
+      if (p) {
+        turn += 1;
+        cur = { label: `#${turn} ${p.slice(0, 80)}`, value: 0 };
+        groups.push(cur);
+      } else if (!cur) {
+        turn += 1;
+        cur = { label: `#${turn}`, value: 0 };
+        groups.push(cur);
+      }
+      cur.value += s.input_tokens + s.output_tokens;
+    }
+    return groups.map((g) => ({
+      label: g.label,
+      value: g.value,
+      display: fmtNum(g.value),
     }));
   }, [d]);
 
@@ -342,6 +430,8 @@ function Detail({
         <Stat label="Turns" value={fmtNum(d.num_turns)} />
         <Stat label="Tools" value={fmtNum(d.tool_calls)} />
         <Stat label="Search / Reads" value={`${fmtNum(d.search_calls ?? 0)} / ${fmtNum(d.file_reads)}`} />
+        <Stat label="Cache read tok" value={fmtNum(d.cache_reads ?? 0)} />
+        <Stat label="Cache write tok" value={fmtNum(d.cache_writes ?? 0)} />
         <Stat
           label="In / Out"
           value={`${d.tokens_estimated ? "~" : ""}${fmtNum(d.input_tokens)} / ${d.tokens_estimated ? "~" : ""}${fmtNum(d.output_tokens)}`}
@@ -395,7 +485,7 @@ function Detail({
           {!d.tools.length && <p className="muted">No tool events yet (hooks or backfill).</p>}
         </div>
         <div className="panel">
-          <h2>Token snapshots</h2>
+          <h2>Tokens by turn</h2>
           <BarList rows={tokenSeries} />
           {!tokenSeries.length && <p className="muted">No token bubbles yet — re-run backfill.</p>}
         </div>
@@ -444,9 +534,9 @@ function BarList({
   const max = Math.max(1, ...rows.map((r) => r.value));
   return (
     <div>
-      {rows.map((r) => (
-        <div className="bar-row" key={r.label}>
-          <span title={r.label}>{r.label.length > 36 ? `${r.label.slice(0, 34)}…` : r.label}</span>
+      {rows.map((r, i) => (
+        <div className="bar-row" key={`${i}-${r.label}`}>
+          <span title={r.label}>{r.label.length > 48 ? `${r.label.slice(0, 46)}…` : r.label}</span>
           <div className="bar-track">
             <div className="bar-fill" style={{ width: `${(r.value / max) * 100}%` }} />
           </div>

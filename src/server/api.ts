@@ -1,6 +1,13 @@
 import { join } from "path";
 import type { Database } from "bun:sqlite";
-import { getDrivers, getOverview, getSessionDetail, listSessions } from "../db/queries";
+import {
+  getDrivers,
+  getOverview,
+  getSessionDetail,
+  listProfiles,
+  listSessions,
+  type SessionSort,
+} from "../db/queries";
 
 function cors(res: Response): Response {
   const headers = new Headers(res.headers);
@@ -27,6 +34,17 @@ function sinceMs(url: URL): number | undefined {
   return Date.now() - n * 24 * 60 * 60 * 1000;
 }
 
+function profile(url: URL): string | undefined {
+  const p = url.searchParams.get("profile");
+  return p && p !== "all" ? p : undefined;
+}
+
+function sort(url: URL): SessionSort {
+  const s = url.searchParams.get("sort");
+  if (s === "cost" || s === "duration" || s === "date") return s;
+  return "date";
+}
+
 export function startServer(
   db: Database,
   opts: { port?: number; staticDir?: string } = {},
@@ -45,11 +63,21 @@ export function startServer(
       if (url.pathname === "/api/health") {
         return json({ ok: true });
       }
+      if (url.pathname === "/api/profiles") {
+        return json(listProfiles(db));
+      }
       if (url.pathname === "/api/overview") {
-        return json(getOverview(db, sinceMs(url)));
+        return json(getOverview(db, sinceMs(url), profile(url)));
       }
       if (url.pathname === "/api/sessions") {
-        return json(listSessions(db, { sinceMs: sinceMs(url), limit: 500 }));
+        return json(
+          listSessions(db, {
+            sinceMs: sinceMs(url),
+            limit: 2000,
+            profile: profile(url),
+            sort: sort(url),
+          }),
+        );
       }
       if (url.pathname.startsWith("/api/sessions/")) {
         const id = decodeURIComponent(url.pathname.slice("/api/sessions/".length));
@@ -62,7 +90,7 @@ export function startServer(
         if (!["tool", "model", "workspace"].includes(dim)) {
           return json({ error: "by must be tool|model|workspace" }, 400);
         }
-        return json(getDrivers(db, dim, sinceMs(url)));
+        return json(getDrivers(db, dim, sinceMs(url), profile(url)));
       }
 
       // Static dashboard
@@ -74,7 +102,10 @@ export function startServer(
         }
         // SPA fallback
         const index = Bun.file(join(staticDir, "index.html"));
-        if (await index.exists()) return cors(new Response(index));
+        const resp = new Response(await index.text(), {
+          headers: { "Content-Type": "text/html", "Cache-Control": "no-cache" },
+        });
+        return cors(resp);
       }
 
       return json({ error: "not found" }, 404);

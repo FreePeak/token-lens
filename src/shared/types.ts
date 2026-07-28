@@ -19,7 +19,10 @@ export type SessionRollup = {
   used_leankg?: number;
   leankg_calls?: number;
   search_calls?: number;
+  cache_reads?: number;
+  cache_writes?: number;
   first_prompt?: string | null;
+  profile: string | null;
 };
 
 export type OverviewStats = {
@@ -27,6 +30,8 @@ export type OverviewStats = {
   num_turns: number;
   tool_calls: number;
   file_reads: number;
+  cache_reads?: number;
+  cache_writes?: number;
   input_tokens: number;
   output_tokens: number;
   total_tokens: number;
@@ -59,8 +64,18 @@ export type SessionDetail = SessionRollup & {
     bubble_id: string;
     input_tokens: number;
     output_tokens: number;
+    cache_read_tokens?: number;
+    cache_write_tokens?: number;
     context_tokens: number | null;
     model: string | null;
+    created_at: number | null;
+    prompt?: string | null;
+  }>;
+  context_events: Array<{
+    id: number;
+    context_tokens: number | null;
+    context_usage_percent: number | null;
+    context_window_size: number | null;
     created_at: number | null;
   }>;
 };
@@ -86,5 +101,10 @@ export type HookPayload = {
   text?: string;
   composer_mode?: string;
   is_background_agent?: boolean;
+  /** Billed tokens from afterAgentResponse (Cursor hook schema). */
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
   [key: string]: unknown;
 };

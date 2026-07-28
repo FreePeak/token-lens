@@ -8,6 +8,12 @@
   },
   "scripts": {
     "backfill": "bun run src/cli.ts backfill",
+    "backfill:incremental": "bun run src/cli.ts backfill --incremental",
+    "sync-usage": "bun run src/cli.ts sync-usage",
+    "recompute": "bun run src/cli.ts recompute",
+    "cron:install": "bun run src/cli.ts cron install",
+    "cron:uninstall": "bun run src/cli.ts cron uninstall",
+    "cron:status": "bun run src/cli.ts cron status",
     "serve": "bun run src/cli.ts serve",
     "hook": "bun run src/cli.ts hook",
     "install-hooks": "bun run src/cli.ts install-hooks",

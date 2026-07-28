@@ -130,6 +130,16 @@ th {
   letter-spacing: 0.03em;
 }
 
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+th.sortable:hover,
+th.sortable.sorted {
+  color: var(--accent);
+}
+
 td.num,
 th.num {
   text-align: right;

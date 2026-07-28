@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   ended_at INTEGER,
   duration_ms INTEGER,
   source TEXT DEFAULT 'hook',
-  first_prompt TEXT
+  first_prompt TEXT,
+  profile TEXT
 );
 
 CREATE TABLE IF NOT EXISTS turns (
@@ -47,10 +48,13 @@ CREATE TABLE IF NOT EXISTS token_snapshots (
   bubble_id TEXT NOT NULL,
   input_tokens INTEGER NOT NULL DEFAULT 0,
   output_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
   context_tokens INTEGER,
   model TEXT,
   created_at INTEGER,
   estimated INTEGER NOT NULL DEFAULT 0,
+  prompt TEXT,
   PRIMARY KEY (conversation_id, bubble_id)
 );
 
@@ -85,7 +89,8 @@ CREATE TABLE IF NOT EXISTS session_rollups (
   used_leankg INTEGER NOT NULL DEFAULT 0,
   leankg_calls INTEGER NOT NULL DEFAULT 0,
   search_calls INTEGER NOT NULL DEFAULT 0,
-  first_prompt TEXT
+  first_prompt TEXT,
+  profile TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_rollups_started ON session_rollups(started_at);
@@ -114,6 +119,15 @@ function migrate(db: Database): void {
   if (!tcols.has("estimated")) {
     db.exec(`ALTER TABLE token_snapshots ADD COLUMN estimated INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!tcols.has("cache_read_tokens")) {
+    db.exec(`ALTER TABLE token_snapshots ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!tcols.has("cache_write_tokens")) {
+    db.exec(`ALTER TABLE token_snapshots ADD COLUMN cache_write_tokens INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!tcols.has("prompt")) {
+    db.exec(`ALTER TABLE token_snapshots ADD COLUMN prompt TEXT`);
+  }
 
   const scols = new Set(
     (db.query(`PRAGMA table_info(sessions)`).all() as Array<{ name: string }>).map((c) => c.name),
@@ -121,7 +135,14 @@ function migrate(db: Database): void {
   if (!scols.has("first_prompt")) {
     db.exec(`ALTER TABLE sessions ADD COLUMN first_prompt TEXT`);
   }
+  if (!scols.has("profile")) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN profile TEXT`);
+  }
   add("first_prompt", "first_prompt TEXT");
+  add("profile", "profile TEXT");
+  // session_rollups.cache_reads / cache_writes = SUM of prompt-cache tokens (not event counts)
+  add("cache_reads", "cache_reads INTEGER NOT NULL DEFAULT 0");
+  add("cache_writes", "cache_writes INTEGER NOT NULL DEFAULT 0");
 }
 
 export function openMetricsDb(path = METRICS_DB_PATH): Database {
@@ -135,16 +156,30 @@ export function openMetricsDb(path = METRICS_DB_PATH): Database {
   return db;
 }
 
-/** Candidate globalStorage state.vscdb roots (macOS Cursor / Cur / ~/.cursor / ~/.cur). */
+/** Candidate globalStorage state.vscdb roots — ~/.cur + ~/.cursor first (user profiles). */
 export function cursorStateDbCandidates(): string[] {
   const home = homedir();
   return [
-    join(home, "Library/Application Support/Cursor/User/globalStorage/state.vscdb"),
-    join(home, "Library/Application Support/Cur/User/globalStorage/state.vscdb"),
-    join(home, ".cursor/User/globalStorage/state.vscdb"),
     join(home, ".cur/User/globalStorage/state.vscdb"),
+    join(home, ".cursor/User/globalStorage/state.vscdb"),
+    join(home, "Library/Application Support/Cur/User/globalStorage/state.vscdb"),
+    join(home, "Library/Application Support/Cursor/User/globalStorage/state.vscdb"),
     join(home, ".config/Cursor/User/globalStorage/state.vscdb"),
   ];
+}
+
+/** Short filter label: `.cur` | `.cursor`. */
+export function profileFromStatePath(statePath: string): string {
+  const n = statePath.replace(/\\/g, "/");
+  // ~/.cur and Application Support/Cur → .cur
+  if (n.includes("/.cur/") || /\/\.cur$/i.test(n)) return ".cur";
+  if (/\/Application Support\/Cur\//i.test(n)) return ".cur";
+  // ~/.cursor and Application Support/Cursor → .cursor
+  if (n.includes("/.cursor/") || /\/\.cursor$/i.test(n)) return ".cursor";
+  if (/\/Application Support\/Cursor\//i.test(n)) return ".cursor";
+  if (n.includes("/.config/Cursor/")) return ".cursor";
+  const m = n.match(/\/([^/]+)\/User\/globalStorage\//);
+  return m?.[1] ?? "unknown";
 }
 
 export function cursorStateDbPath(): string {

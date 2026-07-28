@@ -2,15 +2,18 @@ import { Database } from "bun:sqlite";
 import {
   insertToolCall,
   recomputeAllRollups,
+  recomputeRollups,
   upsertSession,
   upsertTokenSnapshot,
   upsertTurn,
 } from "../db/queries";
-import { discoverCursorStateDbs } from "../db/schema";
+import { discoverCursorStateDbs, profileFromStatePath } from "../db/schema";
 import { charsToTokens, contentChars, normalizeToolLabel } from "../shared/tools";
 
 const MAX_VALUE_CHARS = 2_000_000;
 const PROGRESS_EVERY = 5_000;
+/** Above this many changed composers, one full bubble pass beats N range scans. */
+const FULL_SCAN_CHANGED_THRESHOLD = 80;
 
 type ComposerHeader = {
   composerId?: string;
@@ -116,14 +119,16 @@ export type BackfillResult = {
   path: string;
   paths: string[];
   skippedHuge: number;
+  changed: number;
 };
 
 function clearDerived(metricsDb: Database): void {
   metricsDb.exec(`
     DELETE FROM tool_calls;
     DELETE FROM turns;
-    DELETE FROM token_snapshots;
+    DELETE FROM token_snapshots WHERE bubble_id NOT GLOB 'dash:*';
     DELETE FROM session_rollups;
+    DELETE FROM sessions;
   `);
 }
 
@@ -172,6 +177,7 @@ type Acc = {
   sawExact: boolean;
   toolSeen: Set<string>;
   firstPrompt: string | null;
+  lastPrompt: string | null;
 };
 
 function processBubble(
@@ -196,9 +202,12 @@ function processBubble(
   const textLen = (data.text ?? "").length;
   const toolChars = toolPayloadChars(data.toolFormerData);
   const isUser = data.type === 1 || data.type === "user";
-  if (isUser && !acc.firstPrompt) {
+  if (isUser) {
     const raw = (data.text ?? data.richText ?? "").trim().replace(/\s+/g, " ");
-    if (raw) acc.firstPrompt = raw.slice(0, 240);
+    if (raw) {
+      acc.lastPrompt = raw.slice(0, 240);
+      if (!acc.firstPrompt) acc.firstPrompt = acc.lastPrompt;
+    }
   }
   const isAssistant =
     data.type === 2 ||
@@ -245,6 +254,8 @@ function processBubble(
       model,
       created_at: at,
       estimated,
+      // only user bubbles carry text; UI fill-forwards by created_at (scan order ≠ chrono)
+      prompt: isUser ? acc.lastPrompt : null,
     });
     counts.bubbles++;
     if (estimated) {
@@ -301,26 +312,170 @@ function processBubble(
   }
 }
 
-/** Single-pass scan of one state.vscdb (no per-composer LIKE). */
+function knownEndedAt(
+  metricsDb: Database,
+  profile: string,
+): Map<string, number | null> {
+  const rows = metricsDb
+    .query(`SELECT conversation_id, ended_at FROM sessions WHERE profile = ?`)
+    .all(profile) as Array<{ conversation_id: string; ended_at: number | null }>;
+  return new Map(rows.map((r) => [r.conversation_id, r.ended_at]));
+}
+
+function wipeConversationDerived(metricsDb: Database, ids: string[]): void {
+  if (!ids.length) return;
+  const del = (table: string) => {
+    // ponytail: chunk IN lists; sqlite default var limit is fine for our batches
+    const chunk = 400;
+    for (let i = 0; i < ids.length; i += chunk) {
+      const part = ids.slice(i, i + chunk);
+      const ph = part.map(() => "?").join(",");
+      metricsDb.run(`DELETE FROM ${table} WHERE conversation_id IN (${ph})`, part);
+    }
+  };
+  del("tool_calls");
+  del("turns");
+  del("token_snapshots");
+  del("session_rollups");
+}
+
+function scanBubblesForConversations(
+  cursor: Database,
+  metricsDb: Database,
+  conversationIds: Set<string>,
+  mode: "full" | "per-id",
+): { scanned: number; bubbles: number; toolCalls: number; estimatedSessions: number } {
+  const counts = { bubbles: 0, toolCalls: 0 };
+  const accByConv = new Map<string, Acc>();
+  const getAcc = (id: string): Acc => {
+    let a = accByConv.get(id);
+    if (!a) {
+      a = {
+        model: null,
+        exactIn: 0,
+        exactOut: 0,
+        estIn: 0,
+        estOut: 0,
+        sawExact: false,
+        firstPrompt: null,
+        lastPrompt: null,
+        toolSeen: new Set(),
+      };
+      accByConv.set(id, a);
+    }
+    return a;
+  };
+
+  let scanned = 0;
+
+  const handleRow = (key: string, value: unknown) => {
+    scanned++;
+    if (scanned % PROGRESS_EVERY === 0) {
+      console.log(
+        `[backfill] … scanned ${scanned} bubbles, kept ${counts.bubbles}, tools ${counts.toolCalls}`,
+      );
+    }
+    const ids = parseBubbleKey(key);
+    if (!ids || !conversationIds.has(ids.conversationId)) return;
+
+    let data: Bubble;
+    try {
+      data = JSON.parse(decodeValue(value)) as Bubble;
+    } catch {
+      return;
+    }
+    processBubble(metricsDb, ids.conversationId, ids.bubbleId, data, getAcc(ids.conversationId), counts);
+  };
+
+  const write = metricsDb.transaction(() => {
+    if (mode === "full") {
+      const stmt = cursor.query(
+        `SELECT key, value FROM cursorDiskKV
+         WHERE key LIKE 'bubbleId:%' AND length(value) < ?`,
+      );
+      for (const row of stmt.iterate(MAX_VALUE_CHARS) as IterableIterator<{
+        key: string;
+        value: unknown;
+      }>) {
+        handleRow(row.key, row.value);
+      }
+    } else {
+      const stmt = cursor.query(
+        `SELECT key, value FROM cursorDiskKV
+         WHERE key LIKE $prefix AND length(value) < $max`,
+      );
+      for (const id of conversationIds) {
+        for (const row of stmt.iterate({
+          $prefix: `bubbleId:${id}:%`,
+          $max: MAX_VALUE_CHARS,
+        }) as IterableIterator<{ key: string; value: unknown }>) {
+          handleRow(row.key, row.value);
+        }
+      }
+    }
+  });
+  write();
+
+  let estimatedSessions = 0;
+  metricsDb.transaction(() => {
+    for (const [conversationId, acc] of accByConv) {
+      upsertSession(metricsDb, {
+        conversation_id: conversationId,
+        model: acc.model,
+        first_prompt: acc.firstPrompt,
+        source: "backfill",
+      });
+      if (!acc.sawExact && acc.estIn + acc.estOut > 0) estimatedSessions++;
+    }
+  })();
+
+  return { scanned, bubbles: counts.bubbles, toolCalls: counts.toolCalls, estimatedSessions };
+}
+
+/** Single-pass or per-composer scan of one state.vscdb. */
 export function backfillFromCursor(
   metricsDb: Database,
   statePath: string,
-  opts: { clear?: boolean; rollup?: boolean } = {},
+  opts: { clear?: boolean; rollup?: boolean; resume?: boolean } = {},
 ): BackfillResult {
-  const clear = opts.clear !== false;
+  const clear = opts.clear === true;
   const rollup = opts.rollup !== false;
+  const resume = opts.resume === true && !clear;
+  const profile = profileFromStatePath(statePath);
   const cursor = openCursorDb(statePath);
   let sessions = 0;
   let estimatedSessions = 0;
   let skippedHuge = 0;
-  const counts = { bubbles: 0, toolCalls: 0 };
+  let bubbles = 0;
+  let toolCalls = 0;
+  let scanned = 0;
+  let changedCount = 0;
 
   try {
     if (clear) clearDerived(metricsDb);
 
     const composers = loadComposers(cursor);
-    const knownIds = new Set(composers.map((c) => c.composerId));
-    const filterKnown = knownIds.size > 0;
+    const prior = resume ? knownEndedAt(metricsDb, profile) : new Map<string, number | null>();
+
+    const changed: ComposerMeta[] = [];
+    let skippedUnchanged = 0;
+    for (const c of composers) {
+      if (resume) {
+        const prev = prior.get(c.composerId);
+        // skip only when we already imported this composer and lastUpdatedAt hasn't moved
+        if (
+          prev !== undefined &&
+          prev != null &&
+          c.lastUpdatedAt != null &&
+          c.lastUpdatedAt <= prev
+        ) {
+          skippedUnchanged++;
+          continue;
+        }
+      }
+      changed.push(c);
+    }
+    changedCount = changed.length;
 
     metricsDb.transaction(() => {
       for (const c of composers) {
@@ -336,109 +491,117 @@ export function backfillFromCursor(
               ? Math.max(0, c.lastUpdatedAt - c.createdAt)
               : null,
           source: "backfill",
+          profile,
         });
         sessions++;
       }
     })();
 
+    if (!changed.length) {
+      console.log(
+        `[backfill] ${profile}: ${composers.length} composers, 0 changed — skip bubble scan`,
+      );
+      return {
+        sessions,
+        bubbles: 0,
+        toolCalls: 0,
+        estimatedSessions: 0,
+        path: statePath,
+        paths: [statePath],
+        skippedHuge: 0,
+        changed: 0,
+      };
+    }
+
+    const changedIds = changed.map((c) => c.composerId);
+    // re-import tools/tokens for changed only (tool_calls have no upsert key)
+    if (resume) wipeConversationDerived(metricsDb, changedIds);
+
+    const mode =
+      !resume || changed.length >= FULL_SCAN_CHANGED_THRESHOLD || changed.length === composers.length
+        ? "full"
+        : "per-id";
+    const targetIds = new Set(changedIds);
+
     console.log(
-      `[backfill] ${statePath}: ${composers.length} composers — single-pass bubble scan…`,
+      `[backfill] ${profile}: ${composers.length} composers, ${changed.length} changed` +
+        (skippedUnchanged ? `, ${skippedUnchanged} skipped` : "") +
+        ` — ${mode} bubble scan…`,
     );
 
-    const accByConv = new Map<string, Acc>();
-    const getAcc = (id: string): Acc => {
-      let a = accByConv.get(id);
-      if (!a) {
-        a = {
-          model: null,
-          exactIn: 0,
-          exactOut: 0,
-          estIn: 0,
-          estOut: 0,
-          sawExact: false,
-          firstPrompt: null,
-          toolSeen: new Set(),
-        };
-        accByConv.set(id, a);
-      }
-      return a;
-    };
+    const r = scanBubblesForConversations(cursor, metricsDb, targetIds, mode);
+    scanned = r.scanned;
+    bubbles = r.bubbles;
+    toolCalls = r.toolCalls;
+    estimatedSessions = r.estimatedSessions;
 
-    const stmt = cursor.query(
-      `SELECT key, value FROM cursorDiskKV
-       WHERE key LIKE 'bubbleId:%' AND length(value) < ?`,
-    );
-
-    let scanned = 0;
-    // One write txn for the whole scan — avoids lock churn vs hooks
-    const write = metricsDb.transaction(() => {
-      for (const row of stmt.iterate(MAX_VALUE_CHARS) as IterableIterator<{
-        key: string;
-        value: unknown;
-      }>) {
-        scanned++;
-        if (scanned % PROGRESS_EVERY === 0) {
-          console.log(
-            `[backfill] … scanned ${scanned} bubbles, kept ${counts.bubbles}, tools ${counts.toolCalls}`,
-          );
-        }
-
-        const ids = parseBubbleKey(row.key);
-        if (!ids) continue;
-        if (filterKnown && !knownIds.has(ids.conversationId)) continue;
-
-        let data: Bubble;
-        try {
-          data = JSON.parse(decodeValue(row.value)) as Bubble;
-        } catch {
-          continue;
-        }
-
-        processBubble(
-          metricsDb,
-          ids.conversationId,
-          ids.bubbleId,
-          data,
-          getAcc(ids.conversationId),
-          counts,
-        );
-      }
-    });
-    write();
-    // ponytail: skip second full-table COUNT for length>=cap; filter already drops them
-
+    // stamp profile on sessions touched via bubble-only path
     metricsDb.transaction(() => {
-      for (const [conversationId, acc] of accByConv) {
-        upsertSession(metricsDb, {
-          conversation_id: conversationId,
-          model: acc.model,
-          first_prompt: acc.firstPrompt,
-          source: "backfill",
-        });
-        if (!acc.sawExact && acc.estIn + acc.estOut > 0) estimatedSessions++;
+      for (const id of changedIds) {
+        upsertSession(metricsDb, { conversation_id: id, source: "backfill", profile });
       }
     })();
 
     console.log(
-      `[backfill] done ${statePath}: scanned=${scanned} sessions=${sessions} bubbles=${counts.bubbles} tools=${counts.toolCalls} skipped_huge=${skippedHuge}`,
+      `[backfill] done ${profile}: scanned=${scanned} sessions=${sessions} bubbles=${bubbles} tools=${toolCalls} skipped_huge=${skippedHuge}`,
     );
+
+    if (rollup) {
+      if (resume) recomputeRollups(metricsDb, changedIds);
+      else recomputeAllRollups(metricsDb);
+    }
   } finally {
     cursor.close();
   }
 
-  if (rollup) recomputeAllRollups(metricsDb);
   return {
     sessions,
-    bubbles: counts.bubbles,
-    toolCalls: counts.toolCalls,
+    bubbles,
+    toolCalls,
     estimatedSessions,
     path: statePath,
     paths: [statePath],
     skippedHuge,
+    changed: changedCount,
   };
 }
 
-/** Backfill every discovered Cursor/Cur profile state.vscdb. */
+/**
+ * Incremental backfill: skip composers whose lastUpdatedAt hasn't moved;
+ * only re-scan bubbles for new/changed sessions.
+ */
+export function backfillIncrementalAll(metricsDb: Database): BackfillResult {
+  const paths = discoverCursorStateDbs();
+  let sessions = 0;
+  let bubbles = 0;
+  let toolCalls = 0;
+  let estimatedSessions = 0;
+  let skippedHuge = 0;
+  let changed = 0;
+
+  for (const path of paths) {
+    const r = backfillFromCursor(metricsDb, path, { clear: false, rollup: true, resume: true });
+    sessions += r.sessions;
+    bubbles += r.bubbles;
+    toolCalls += r.toolCalls;
+    estimatedSessions += r.estimatedSessions;
+    skippedHuge += r.skippedHuge;
+    changed += r.changed;
+  }
+
+  return {
+    sessions,
+    bubbles,
+    toolCalls,
+    estimatedSessions,
+    path: paths.join("\n"),
+    paths,
+    skippedHuge,
+    changed,
+  };
+}
+
+/** Full wipe + import every discovered Cursor/Cur profile state.vscdb. */
 export function backfillAllProfiles(metricsDb: Database): BackfillResult {
   const paths = discoverCursorStateDbs();
   if (!paths.length) {
@@ -454,14 +617,16 @@ export function backfillAllProfiles(metricsDb: Database): BackfillResult {
   let toolCalls = 0;
   let estimatedSessions = 0;
   let skippedHuge = 0;
+  let changed = 0;
 
   for (const path of paths) {
-    const r = backfillFromCursor(metricsDb, path, { clear: false, rollup: false });
+    const r = backfillFromCursor(metricsDb, path, { clear: false, rollup: false, resume: false });
     sessions += r.sessions;
     bubbles += r.bubbles;
     toolCalls += r.toolCalls;
     estimatedSessions += r.estimatedSessions;
     skippedHuge += r.skippedHuge;
+    changed += r.changed;
   }
 
   recomputeAllRollups(metricsDb);
@@ -473,5 +638,6 @@ export function backfillAllProfiles(metricsDb: Database): BackfillResult {
     path: paths.join("\n"),
     paths,
     skippedHuge,
+    changed,
   };
 }

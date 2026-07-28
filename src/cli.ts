@@ -21,11 +21,7 @@ import type { HookPayload } from "./shared/types";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 async function readStdinJson(): Promise<HookPayload> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of Bun.stdin.stream()) {
-    chunks.push(Buffer.from(chunk));
-  }
-  const raw = Buffer.concat(chunks).toString("utf8").trim();
+  const raw = (await Bun.stdin.text()).trim();
   if (!raw) return {};
   return JSON.parse(raw) as HookPayload;
 }
@@ -107,7 +103,7 @@ async function main(): Promise<void> {
       console.log(`Backfilling ${paths.length} Cursor profile DB(s) [${incremental ? "incremental" : "full"}]:`);
       for (const p of paths) console.log(`  ${p}`);
       const t0 = performance.now();
-      const result = incremental ? backfillIncrementalAll(db) : backfillAllProfiles(db);
+      const result = incremental ? await backfillIncrementalAll(db) : await backfillAllProfiles(db);
       const sec = ((performance.now() - t0) / 1000).toFixed(1);
       console.log(
         `Done in ${sec}s. sessions=${result.sessions} changed=${result.changed} token_bubbles=${result.bubbles} tool_calls=${result.toolCalls} estimated=${result.estimatedSessions}`,
@@ -150,7 +146,7 @@ async function main(): Promise<void> {
     const db = openMetricsDb();
     try {
       const t0 = performance.now();
-      const n = recomputeAllRollups(db);
+      const n = await recomputeAllRollups(db);
       invalidateOverviewCache(db);
       const sec = ((performance.now() - t0) / 1000).toFixed(1);
       console.log(`Recomputed ${n} session rollups in ${sec}s (prices.json + cache tokens).`);
@@ -240,7 +236,7 @@ async function main(): Promise<void> {
       syncing = true;
       const t0 = performance.now();
       try {
-        const result = backfillIncrementalAll(db);
+        const result = await backfillIncrementalAll(db);
         const sec = ((performance.now() - t0) / 1000).toFixed(1);
         console.log(
           `[backfill] ${sec}s sessions=${result.sessions} changed=${result.changed} bubbles=${result.bubbles} tools=${result.toolCalls}`,

@@ -1,12 +1,12 @@
 /** LeanKG / graph MCP tool name patterns (Cursor stores mcp-<server>-<tool>). */
-export const LEANKG_TOOL_RE =
+const LEANKG_TOOL_RE =
   /(?:^|[-_])leankg(?:[-_]|$)|(?:^|[-_])(?:concept_search|semantic_search|get_overview_context|get_context|search_code|query_graph|find_function|mcp_status|get_impact_radius|get_callers|get_dependencies)/i;
 
 /** Expensive filesystem search tools that LeanKG is meant to replace. */
 export const SEARCH_TOOL_RE =
   /ripgrep|grep|glob_file_search|file_search|list_dir_v2|list_dir|Codebase_Search|codebase_search/i;
 
-export const READ_TOOL_RE = /read_file|Read$|^Read$|TabRead|readFile/i;
+const READ_TOOL_RE = /read_file|Read$|^Read$|TabRead|readFile/i;
 
 export const TERMINAL_TOOL_RE = /run_terminal_command|Shell$|^Shell$|Bash$|execute_command/i;
 

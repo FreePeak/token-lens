@@ -145,6 +145,9 @@ function migrate(db: Database): void {
   if (!scols.has("profile")) {
     db.exec(`ALTER TABLE sessions ADD COLUMN profile TEXT`);
   }
+  if (!scols.has("last_backfilled_at")) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN last_backfilled_at INTEGER`);
+  }
   add("first_prompt", "first_prompt TEXT");
   add("profile", "profile TEXT");
   // session_rollups.cache_reads / cache_writes = SUM of prompt-cache tokens (not event counts)
@@ -187,10 +190,6 @@ export function profileFromStatePath(statePath: string): string {
   if (/\/Application Support\/Cur\//i.test(n)) return ".cur";
   const m = n.match(/\/([^/]+)\/User\/globalStorage\//);
   return m?.[1] ?? "unknown";
-}
-
-export function cursorStateDbPath(): string {
-  return discoverCursorStateDbs()[0] ?? cursorStateDbCandidates()[0]!;
 }
 
 /** Existing state DBs that look like they hold composer/bubble data. */

@@ -1,4 +1,7 @@
 import { Database } from "bun:sqlite";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import {
   insertToolCall,
   recomputeAllRollups,
@@ -15,6 +18,7 @@ const MAX_VALUE_CHARS = 2_000_000;
 const PROGRESS_EVERY = 5_000;
 /** Above this many changed composers, one full bubble pass beats N range scans. */
 const FULL_SCAN_CHANGED_THRESHOLD = 80;
+const BACKFILL_LOCK = join(homedir(), ".cursor-metrics", "backfill.lock");
 
 type ComposerHeader = {
   composerId?: string;
@@ -313,31 +317,30 @@ function processBubble(
   }
 }
 
-function knownEndedAt(
+function knownBackfilledAt(
   metricsDb: Database,
   profile: string,
 ): Map<string, number | null> {
   const rows = metricsDb
-    .query(`SELECT conversation_id, ended_at FROM sessions WHERE profile = ?`)
-    .all(profile) as Array<{ conversation_id: string; ended_at: number | null }>;
-  return new Map(rows.map((r) => [r.conversation_id, r.ended_at]));
+    .query(`SELECT conversation_id, last_backfilled_at FROM sessions WHERE profile = ?`)
+    .all(profile) as Array<{ conversation_id: string; last_backfilled_at: number | null }>;
+  return new Map(rows.map((r) => [r.conversation_id, r.last_backfilled_at]));
 }
 
 function wipeConversationDerived(metricsDb: Database, ids: string[]): void {
   if (!ids.length) return;
-  const del = (table: string) => {
-    // ponytail: chunk IN lists; sqlite default var limit is fine for our batches
+  const delIn = (table: string, extraWhere = "") => {
     const chunk = 400;
     for (let i = 0; i < ids.length; i += chunk) {
       const part = ids.slice(i, i + chunk);
       const ph = part.map(() => "?").join(",");
-      metricsDb.run(`DELETE FROM ${table} WHERE conversation_id IN (${ph})`, part);
+      metricsDb.run(`DELETE FROM ${table} WHERE conversation_id IN (${ph})${extraWhere}`, part);
     }
   };
-  del("tool_calls");
-  del("turns");
-  del("token_snapshots");
-  del("session_rollups");
+  delIn("tool_calls");
+  delIn("turns");
+  delIn("token_snapshots", " AND bubble_id NOT GLOB 'hook:*' AND bubble_id NOT GLOB 'dash:*'");
+  // session_rollups overwritten by recomputeRollups — never delete
 }
 
 function scanBubblesForConversations(
@@ -434,11 +437,11 @@ function scanBubblesForConversations(
 }
 
 /** Single-pass or per-composer scan of one state.vscdb. */
-export function backfillFromCursor(
+export async function backfillFromCursor(
   metricsDb: Database,
   statePath: string,
   opts: { clear?: boolean; rollup?: boolean; resume?: boolean } = {},
-): BackfillResult {
+): Promise<BackfillResult> {
   const clear = opts.clear === true;
   const rollup = opts.rollup !== false;
   const resume = opts.resume === true && !clear;
@@ -456,12 +459,20 @@ export function backfillFromCursor(
     if (clear) clearDerived(metricsDb);
 
     const composers = loadComposers(cursor);
-    const prior = resume ? knownEndedAt(metricsDb, profile) : new Map<string, number | null>();
+    const prior = resume ? knownBackfilledAt(metricsDb, profile) : new Map<string, number | null>();
 
     const changed: ComposerMeta[] = [];
     let skippedUnchanged = 0;
     for (const c of composers) {
+      // check if session exists in metrics DB
+      let exists = false;
       if (resume) {
+        const row = metricsDb
+          .query(`SELECT 1 AS ok FROM sessions WHERE conversation_id = ?`)
+          .get(c.composerId) as { ok: number } | null;
+        exists = !!row;
+      }
+      if (resume && exists) {
         const prev = prior.get(c.composerId);
         // skip only when we already imported this composer and lastUpdatedAt hasn't moved
         if (
@@ -479,7 +490,7 @@ export function backfillFromCursor(
     changedCount = changed.length;
 
     metricsDb.transaction(() => {
-      for (const c of composers) {
+      for (const c of changed) {
         upsertSession(metricsDb, {
           conversation_id: c.composerId,
           title: c.title,
@@ -536,10 +547,15 @@ export function backfillFromCursor(
     toolCalls = r.toolCalls;
     estimatedSessions = r.estimatedSessions;
 
-    // stamp profile on sessions touched via bubble-only path
+    // stamp last_backfilled_at on changed composers after successful bubble scan
     metricsDb.transaction(() => {
-      for (const id of changedIds) {
-        upsertSession(metricsDb, { conversation_id: id, source: "backfill", profile });
+      for (const c of changed) {
+        upsertSession(metricsDb, {
+          conversation_id: c.composerId,
+          source: "backfill",
+          profile,
+          last_backfilled_at: c.lastUpdatedAt,
+        });
       }
     })();
 
@@ -548,8 +564,8 @@ export function backfillFromCursor(
     );
 
     if (rollup) {
-      if (resume) recomputeRollups(metricsDb, changedIds);
-      else recomputeAllRollups(metricsDb);
+      if (resume) await recomputeRollups(metricsDb, changedIds);
+      else await recomputeAllRollups(metricsDb);
     }
   } finally {
     cursor.close();
@@ -567,45 +583,78 @@ export function backfillFromCursor(
   };
 }
 
-/**
- * Incremental backfill: skip composers whose lastUpdatedAt hasn't moved;
- * only re-scan bubbles for new/changed sessions.
- */
-export function backfillIncrementalAll(metricsDb: Database): BackfillResult {
-  const paths = discoverCursorStateDbs();
-  let sessions = 0;
-  let bubbles = 0;
-  let toolCalls = 0;
-  let estimatedSessions = 0;
-  let skippedHuge = 0;
-  let changed = 0;
-
-  for (const path of paths) {
-    const r = backfillFromCursor(metricsDb, path, { clear: false, rollup: true, resume: true });
-    sessions += r.sessions;
-    bubbles += r.bubbles;
-    toolCalls += r.toolCalls;
-    estimatedSessions += r.estimatedSessions;
-    skippedHuge += r.skippedHuge;
-    changed += r.changed;
+/** Try to acquire pid-file lock. Returns cleanup fn if acquired, null if another process holds it. */
+function acquireBackfillLock(): (() => void) | null {
+  const dir = join(homedir(), ".cursor-metrics");
+  mkdirSync(dir, { recursive: true });
+  if (existsSync(BACKFILL_LOCK)) {
+    const stale = readFileSync(BACKFILL_LOCK, "utf-8").trim();
+    const pid = Number(stale);
+    if (Number.isFinite(pid) && pid > 0) {
+      try {
+        process.kill(pid, 0); // signal 0 = existence check
+        // process is alive — another backfill running
+        return null;
+      } catch {
+        // process dead — steal lock
+      }
+    }
   }
-
-  invalidateOverviewCache(metricsDb);
-
-  return {
-    sessions,
-    bubbles,
-    toolCalls,
-    estimatedSessions,
-    path: paths.join("\n"),
-    paths,
-    skippedHuge,
-    changed,
+  writeFileSync(BACKFILL_LOCK, String(process.pid), "utf-8");
+  return () => {
+    try { unlinkSync(BACKFILL_LOCK); } catch { /* best-effort */ }
   };
 }
 
+/**
+ * Incremental backfill: skip composers whose last_backfilled_at hasn't moved;
+ * only re-scan bubbles for new/changed sessions.
+ */
+export async function backfillIncrementalAll(metricsDb: Database): Promise<BackfillResult> {
+  const unlock = acquireBackfillLock();
+  if (!unlock) {
+    console.log("[backfill] skip — another backfill process is running");
+    return { sessions: 0, bubbles: 0, toolCalls: 0, estimatedSessions: 0, path: "", paths: [], skippedHuge: 0, changed: 0 };
+  }
+
+  try {
+    const paths = discoverCursorStateDbs();
+    let sessions = 0;
+    let bubbles = 0;
+    let toolCalls = 0;
+    let estimatedSessions = 0;
+    let skippedHuge = 0;
+    let changed = 0;
+
+    for (const path of paths) {
+      const r = await backfillFromCursor(metricsDb, path, { clear: false, rollup: true, resume: true });
+      sessions += r.sessions;
+      bubbles += r.bubbles;
+      toolCalls += r.toolCalls;
+      estimatedSessions += r.estimatedSessions;
+      skippedHuge += r.skippedHuge;
+      changed += r.changed;
+    }
+
+    invalidateOverviewCache(metricsDb);
+
+    return {
+      sessions,
+      bubbles,
+      toolCalls,
+      estimatedSessions,
+      path: paths.join("\n"),
+      paths,
+      skippedHuge,
+      changed,
+    };
+  } finally {
+    unlock();
+  }
+}
+
 /** Full wipe + import every discovered Cursor/Cur profile state.vscdb. */
-export function backfillAllProfiles(metricsDb: Database): BackfillResult {
+export async function backfillAllProfiles(metricsDb: Database): Promise<BackfillResult> {
   const paths = discoverCursorStateDbs();
   if (!paths.length) {
     throw new Error(
@@ -623,7 +672,7 @@ export function backfillAllProfiles(metricsDb: Database): BackfillResult {
   let changed = 0;
 
   for (const path of paths) {
-    const r = backfillFromCursor(metricsDb, path, { clear: false, rollup: false, resume: false });
+    const r = await backfillFromCursor(metricsDb, path, { clear: false, rollup: false, resume: false });
     sessions += r.sessions;
     bubbles += r.bubbles;
     toolCalls += r.toolCalls;
@@ -632,7 +681,7 @@ export function backfillAllProfiles(metricsDb: Database): BackfillResult {
     changed += r.changed;
   }
 
-  recomputeAllRollups(metricsDb);
+  await recomputeAllRollups(metricsDb);
   invalidateOverviewCache(metricsDb);
   return {
     sessions,

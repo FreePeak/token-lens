@@ -162,7 +162,7 @@ function readDesktopAuth(statePath: string): UsageProfile | null {
 }
 
 /** Auto-discover `.cur` / `.cursor` from local Cursor/Cur app logins. */
-export function discoverDesktopUsageProfiles(): UsageProfile[] {
+function discoverDesktopUsageProfiles(): UsageProfile[] {
   const out: UsageProfile[] = [];
   for (const name of [".cur", ".cursor"] as const) {
     for (const path of stateDbsForProfile(name)) {
@@ -245,12 +245,12 @@ function resolveLegacyToken(explicit?: string): string | null {
 }
 
 /** True if at least one profile/token is configured. */
-export function resolveSessionToken(explicit?: string): string | null {
+function resolveSessionToken(explicit?: string): string | null {
   if (explicit?.trim()) return normalizeToken(explicit);
   return loadUsageProfiles()[0]?.token ?? null;
 }
 
-export function writeUsageProfiles(profiles: UsageProfile[]): void {
+function writeUsageProfiles(profiles: UsageProfile[]): void {
   mkdirSync(METRICS_DIR, { recursive: true });
   writeFileSync(USAGE_PROFILES_FILE, JSON.stringify(profiles, null, 2) + "\n", "utf8");
 }

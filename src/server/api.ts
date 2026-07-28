@@ -2,12 +2,12 @@ import { join } from "path";
 import type { Database } from "bun:sqlite";
 import {
   getDrivers,
-  getOverviewCached,
   getSessionDetail,
   listProfiles,
   listSessions,
   type SessionSort,
 } from "../db/queries";
+import { getOverviewCached } from "../db/overview-cache";
 
 function cors(res: Response): Response {
   const headers = new Headers(res.headers);

@@ -3,14 +3,14 @@ import { estimateCostUsd } from "../shared/prices";
 import { isLeanKgTool, isReadTool, isSearchTool } from "../shared/tools";
 import type { DriverRow, OverviewStats, SessionDetail, SessionRollup } from "../shared/types";
 
-function withWriteRetry<T>(fn: () => T, attempts = 5): T {
+async function withWriteRetry<T>(fn: () => T, attempts = 5): Promise<T> {
   for (let i = 0; i < attempts; i++) {
     try {
       return fn();
     } catch (err) {
       const code = (err as { code?: string }).code;
       if (code !== "SQLITE_BUSY" && code !== "SQLITE_BUSY_SNAPSHOT") throw err;
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (i + 1));
+      await new Promise((r) => setTimeout(r, 50 * (i + 1)));
     }
   }
   throw new Error("metrics.db write retry exhausted");
@@ -30,11 +30,12 @@ export function upsertSession(
     source?: string;
     first_prompt?: string | null;
     profile?: string | null;
+    last_backfilled_at?: number | null;
   },
 ): void {
   db.run(
-    `INSERT INTO sessions (conversation_id, title, workspace, model, mode, started_at, ended_at, duration_ms, source, first_prompt, profile)
-     VALUES ($id, $title, $ws, $model, $mode, $start, $end, $dur, $source, $fp, $profile)
+    `INSERT INTO sessions (conversation_id, title, workspace, model, mode, started_at, ended_at, duration_ms, source, first_prompt, profile, last_backfilled_at)
+     VALUES ($id, $title, $ws, $model, $mode, $start, $end, $dur, $source, $fp, $profile, $lba)
      ON CONFLICT(conversation_id) DO UPDATE SET
        title = COALESCE(excluded.title, sessions.title),
        workspace = COALESCE(excluded.workspace, sessions.workspace),
@@ -45,6 +46,7 @@ export function upsertSession(
        duration_ms = COALESCE(excluded.duration_ms, sessions.duration_ms),
        first_prompt = COALESCE(excluded.first_prompt, sessions.first_prompt),
        profile = COALESCE(excluded.profile, sessions.profile),
+       last_backfilled_at = COALESCE(excluded.last_backfilled_at, sessions.last_backfilled_at),
        source = CASE WHEN sessions.source = 'backfill' AND excluded.source = 'hook' THEN 'hook'
                      ELSE sessions.source END`,
     {
@@ -59,6 +61,7 @@ export function upsertSession(
       $source: row.source ?? "hook",
       $fp: row.first_prompt ?? null,
       $profile: row.profile ?? null,
+      $lba: row.last_backfilled_at ?? null,
     },
   );
 }
@@ -349,19 +352,19 @@ export function recomputeRollup(db: Database, conversationId: string): void {
   );
 }
 
-export function recomputeAllRollups(db: Database): number {
+export async function recomputeAllRollups(db: Database): Promise<number> {
   const ids = db
     .query(`SELECT conversation_id FROM sessions`)
     .all() as Array<{ conversation_id: string }>;
   return recomputeRollups(db, ids.map((r) => r.conversation_id));
 }
 
-export function recomputeRollups(db: Database, conversationIds: string[]): number {
+export async function recomputeRollups(db: Database, conversationIds: string[]): Promise<number> {
   if (!conversationIds.length) return 0;
   const tx = db.transaction(() => {
     for (const id of conversationIds) recomputeRollup(db, id);
   });
-  withWriteRetry(() => tx());
+  await withWriteRetry(() => tx());
   return conversationIds.length;
 }
 
@@ -549,14 +552,8 @@ export function getDrivers(
   return db.query(sql).all(...params) as DriverRow[];
 }
 
-export function isFileReadTool(name: string): boolean {
-  return isReadTool(name);
-}
-
 export function listProfiles(db: Database): string[] {
   return (db
     .query(`SELECT DISTINCT profile FROM session_rollups WHERE profile IS NOT NULL ORDER BY profile`)
     .all() as Array<{ profile: string }>).map(r => r.profile);
 }
-
-export { getOverviewCached } from "./overview-cache";

@@ -2,7 +2,7 @@ import { join } from "path";
 import type { Database } from "bun:sqlite";
 import {
   getDrivers,
-  getOverview,
+  getOverviewCached,
   getSessionDetail,
   listProfiles,
   listSessions,
@@ -67,7 +67,7 @@ export function startServer(
         return json(listProfiles(db));
       }
       if (url.pathname === "/api/overview") {
-        return json(getOverview(db, sinceMs(url), profile(url)));
+        return json(getOverviewCached(db, sinceMs(url), profile(url)));
       }
       if (url.pathname === "/api/sessions") {
         return json(

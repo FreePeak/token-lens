@@ -3,6 +3,19 @@ import { estimateCostUsd } from "../shared/prices";
 import { isLeanKgTool, isReadTool, isSearchTool } from "../shared/tools";
 import type { DriverRow, OverviewStats, SessionDetail, SessionRollup } from "../shared/types";
 
+function withWriteRetry<T>(fn: () => T, attempts = 5): T {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return fn();
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code !== "SQLITE_BUSY" && code !== "SQLITE_BUSY_SNAPSHOT") throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (i + 1));
+    }
+  }
+  throw new Error("metrics.db write retry exhausted");
+}
+
 export function upsertSession(
   db: Database,
   row: {
@@ -348,7 +361,7 @@ export function recomputeRollups(db: Database, conversationIds: string[]): numbe
   const tx = db.transaction(() => {
     for (const id of conversationIds) recomputeRollup(db, id);
   });
-  tx();
+  withWriteRetry(() => tx());
   return conversationIds.length;
 }
 
@@ -545,3 +558,5 @@ export function listProfiles(db: Database): string[] {
     .query(`SELECT DISTINCT profile FROM session_rollups WHERE profile IS NOT NULL ORDER BY profile`)
     .all() as Array<{ profile: string }>).map(r => r.profile);
 }
+
+export { getOverviewCached } from "./overview-cache";

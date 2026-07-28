@@ -14,6 +14,7 @@ import {
 } from "./collector/sync-usage";
 import { openMetricsDb, METRICS_DB_PATH, METRICS_DIR, discoverCursorStateDbs } from "./db/schema";
 import { recomputeAllRollups } from "./db/queries";
+import { invalidateOverviewCache } from "./db/overview-cache";
 import { startServer } from "./server/api";
 import type { HookPayload } from "./shared/types";
 
@@ -150,6 +151,7 @@ async function main(): Promise<void> {
     try {
       const t0 = performance.now();
       const n = recomputeAllRollups(db);
+      invalidateOverviewCache(db);
       const sec = ((performance.now() - t0) / 1000).toFixed(1);
       console.log(`Recomputed ${n} session rollups in ${sec}s (prices.json + cache tokens).`);
       console.log(`DB: ${METRICS_DB_PATH}`);
@@ -294,6 +296,15 @@ function cronPlist(bunPath: string, scriptPath: string): string {
     <string>backfill</string>
     <string>--incremental</string>
   </array>
+  <key>WorkingDirectory</key>
+  <string>${ROOT}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>${homedir()}</string>
+    <key>PATH</key>
+    <string>${process.env.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin"}</string>
+  </dict>
   <key>StartInterval</key>
   <integer>900</integer>
   <key>RunAtLoad</key>
@@ -301,9 +312,9 @@ function cronPlist(bunPath: string, scriptPath: string): string {
   <key>AbandonProcessGroup</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/dev/null</string>
+  <string>${join(METRICS_DIR, "cron.log")}</string>
   <key>StandardErrorPath</key>
-  <string>/dev/null</string>
+  <string>${join(METRICS_DIR, "cron.log")}</string>
   <key>LowPriorityIO</key>
   <true/>
   <key>Nice</key>

@@ -4,6 +4,7 @@ import { join } from "path";
 import { Database } from "bun:sqlite";
 import { METRICS_DIR } from "../db/schema";
 import { recomputeRollup, upsertSession, upsertTokenSnapshot } from "../db/queries";
+import { invalidateOverviewCache } from "../db/overview-cache";
 
 const API = "https://cursor.com/api/dashboard/get-filtered-usage-events";
 const PAGE_SIZE = 100;
@@ -461,5 +462,6 @@ export async function syncUsageProfiles(
       `All usage profile syncs failed (${selected.map((p) => p.name).join(", ")}).`,
     );
   }
+  invalidateOverviewCache(db);
   return results;
 }

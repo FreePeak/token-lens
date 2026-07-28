@@ -7,6 +7,7 @@ import {
   upsertTokenSnapshot,
   upsertTurn,
 } from "../db/queries";
+import { invalidateOverviewCache } from "../db/overview-cache";
 import { discoverCursorStateDbs, profileFromStatePath } from "../db/schema";
 import { charsToTokens, contentChars, normalizeToolLabel } from "../shared/tools";
 
@@ -589,6 +590,8 @@ export function backfillIncrementalAll(metricsDb: Database): BackfillResult {
     changed += r.changed;
   }
 
+  invalidateOverviewCache(metricsDb);
+
   return {
     sessions,
     bubbles,
@@ -630,6 +633,7 @@ export function backfillAllProfiles(metricsDb: Database): BackfillResult {
   }
 
   recomputeAllRollups(metricsDb);
+  invalidateOverviewCache(metricsDb);
   return {
     sessions,
     bubbles,

@@ -95,6 +95,13 @@ CREATE TABLE IF NOT EXISTS session_rollups (
 
 CREATE INDEX IF NOT EXISTS idx_rollups_started ON session_rollups(started_at);
 CREATE INDEX IF NOT EXISTS idx_rollups_cost ON session_rollups(total_cost_usd);
+
+CREATE TABLE IF NOT EXISTS overview_cache (
+  key TEXT PRIMARY KEY,
+  payload TEXT NOT NULL,
+  computed_at INTEGER NOT NULL,
+  source_session_count INTEGER NOT NULL
+);
 `;
 
 function migrate(db: Database): void {
@@ -171,13 +178,13 @@ export function cursorStateDbCandidates(): string[] {
 /** Short filter label: `.cur` | `.cursor`. */
 export function profileFromStatePath(statePath: string): string {
   const n = statePath.replace(/\\/g, "/");
-  // ~/.cur and Application Support/Cur → .cur
-  if (n.includes("/.cur/") || /\/\.cur$/i.test(n)) return ".cur";
-  if (/\/Application Support\/Cur\//i.test(n)) return ".cur";
   // ~/.cursor and Application Support/Cursor → .cursor
   if (n.includes("/.cursor/") || /\/\.cursor$/i.test(n)) return ".cursor";
   if (/\/Application Support\/Cursor\//i.test(n)) return ".cursor";
   if (n.includes("/.config/Cursor/")) return ".cursor";
+  // ~/.cur and Application Support/Cur → .cur
+  if (n.includes("/.cur/") || /\/\.cur$/i.test(n)) return ".cur";
+  if (/\/Application Support\/Cur\//i.test(n)) return ".cur";
   const m = n.match(/\/([^/]+)\/User\/globalStorage\//);
   return m?.[1] ?? "unknown";
 }

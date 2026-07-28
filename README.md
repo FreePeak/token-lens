@@ -97,6 +97,19 @@ bun run sync-usage   # refresh cache tokens from dashboard
 bun run recompute    # recalculate all session costs
 ```
 
+## Overview cache
+
+The `/api/overview` payload is cached in the `overview_cache` SQLite table (single row, key
+`"default"`). The cache is invalidated whenever new rollups are computed:
+
+- `backfill` (incremental + full) — at the end of the scan
+- `sync-usage` — after the per-profile sync loop
+- `recompute` — after recomputing all rollups
+
+Between invalidations, the unfiltered overview is served from the cache. The filtered overview
+(`?days=` / `?profile=`) always bypasses the cache. If the count of `session_rollups` grows past
+the cached snapshot's `source_session_count`, the next request recomputes lazily.
+
 ## Hooks
 
 `bun run install-hooks` merges into `~/.cursor/hooks.json` and installs `~/.cursor/hooks/cursor-metrics-hook.sh`.

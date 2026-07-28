@@ -146,9 +146,3 @@ export function shortTitle(s: SessionRollup): string {
   }
   return s.conversation_id.slice(0, 8);
 }
-
-export function shortWs(ws: string | null): string {
-  if (!ws) return "—";
-  const parts = ws.replace(/\\/g, "/").split("/").filter(Boolean);
-  return parts.slice(-2).join("/") || ws;
-}

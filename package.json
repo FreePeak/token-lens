@@ -20,6 +20,9 @@
     "dashboard:dev": "cd dashboard && bun run dev",
     "dashboard:build": "cd dashboard && bun run build",
     "dashboard:install": "cd dashboard && bun install",
+    "analyze": "bun run src/analyze.ts",
+    "analyze:claude": "bun run src/analyze.ts --claude",
+    "analyze:html": "bun run src/analyze.ts --html",
     "dev": "bun run src/cli.ts serve"
   },
   "devDependencies": {

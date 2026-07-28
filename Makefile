@@ -19,6 +19,7 @@ CLI = $(BUN) run src/cli.ts
         cron-install cron-uninstall cron-status \
         serve hook install-hooks \
         dashboard-install dashboard-dev dashboard-build \
+        analyze analyze-claude analyze-html \
         dev test reprofile reprofile-apply
 
 help: ## show this help
@@ -75,6 +76,15 @@ dashboard-build: ## build dashboard for serve to serve
 	cd dashboard && $(BUN) run build
 
 # --- convenience / extras --------------------------------------------
+
+analyze: ## run token waste analysis report to stdout (--since DAYS, --sessions N, --profile NAME)
+	$(BUN) run src/analyze.ts
+
+analyze-claude: ## pipe token waste analysis to claude for root-cause investigation
+	$(BUN) run src/analyze.ts --claude
+
+analyze-html: ## export token waste analysis to HTML file (--since DAYS, --sessions N, --profile NAME, FILE=out.html)
+	$(BUN) run src/analyze.ts --html $(FILE)
 
 dev: ## alias for `make serve`
 	$(CLI) serve

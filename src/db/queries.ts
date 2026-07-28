@@ -338,7 +338,7 @@ export function recomputeRollup(db: Database, conversationId: string): void {
       $reads: reads,
       $in: input,
       $out: output,
-      $tot: input + output,
+      $tot: input + output + cacheReads + cacheWrites,
       $cost: cost,
       $est: tokens.any_est ? 1 : 0,
       $lk: leankg > 0 ? 1 : 0,

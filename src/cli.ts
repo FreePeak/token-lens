@@ -134,7 +134,7 @@ async function main(): Promise<void> {
   }
 
   if (cmd === "sync-usage") {
-    const days = argNum(args, "--days") ?? 7;
+    const days = argNum(args, "--days") ?? 30;
     const profile = argStr(args, "--profile") ?? "all";
     const { loadUsageProfiles, syncUsageProfiles, SESSION_TOKEN_FILE, USAGE_PROFILES_FILE } = await import("./collector/sync-usage");
     if (!loadUsageProfiles().length) {
@@ -282,7 +282,7 @@ async function main(): Promise<void> {
 
           const u0 = performance.now();
           const uchild = Bun.spawn(
-            [process.execPath, "run", join(ROOT, "src/cli.ts"), "sync-usage"],
+            [process.execPath, "run", join(ROOT, "src/cli.ts"), "sync-usage", "--days", "30"],
             { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env } },
           );
           pump(uchild.stdout, process.stdout);

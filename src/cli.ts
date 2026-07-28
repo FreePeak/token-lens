@@ -243,45 +243,56 @@ async function main(): Promise<void> {
       console.log(`Usage sync: skipped (configure ${USAGE_PROFILES_FILE})`);
     }
 
-    const INTERVAL_MS = 15 * 60 * 1000;
-    let syncing = false;
-    const runIncremental = async () => {
-      if (syncing) {
-        console.log("[backfill] skip — previous run still in progress");
-        return;
-      }
-      syncing = true;
-      const t0 = performance.now();
-      try {
-        const cursor = getTool("cursor");
-        if (cursor) {
-          const result = await cursor.backfill(db, { resume: true, rollup: true });
-          const sec = ((performance.now() - t0) / 1000).toFixed(1);
-          console.log(
-            `[backfill] cursor ${sec}s sessions=${result.changed} bubbles=${result.bubbles} tools=${result.toolCalls}`,
-          );
-        }
-        if (loadUsageProfiles().length && cursor?.syncUsage) {
-          const u0 = performance.now();
-          const usages = (await cursor.syncUsage(db, { days: 7 })) as Array<{
-            profile: string; events: number; cacheReadTokens: number; cacheWriteTokens: number; conversations: number;
-          }>;
-          const usec = ((performance.now() - u0) / 1000).toFixed(1);
-          for (const usage of usages) {
-            console.log(
-              `[usage:${usage.profile}] ${usec}s events=${usage.events} cache_read=${usage.cacheReadTokens} cache_write=${usage.cacheWriteTokens} convs=${usage.conversations}`,
-            );
-          }
-        }
-      } catch (err) {
-        console.error("[backfill] failed:", err);
-      } finally {
-        syncing = false;
-      }
-    };
     if (!noBackfill) {
-      void runIncremental();
-      setInterval(() => void runIncremental(), INTERVAL_MS);
+      const INTERVAL_MS = 15 * 60 * 1000;
+      let running = false;
+
+      const pump = (stream: ReadableStream<Uint8Array>, target: NodeJS.WriteStream) => {
+        const reader = stream.getReader();
+        const read: () => Promise<void> = () => reader.read().then(({ done, value }) => {
+          if (done) return;
+          target.write(value);
+          return read();
+        }).catch(() => {});
+        read();
+      };
+
+      const spawnAll = () => {
+        if (running) {
+          console.log("[backfill] skip — previous run still in progress");
+          return;
+        }
+        running = true;
+        const t0 = performance.now();
+
+        const child = Bun.spawn(
+          [process.execPath, "run", join(ROOT, "src/cli.ts"), "backfill", "--incremental"],
+          { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env } },
+        );
+        pump(child.stdout, process.stdout);
+        pump(child.stderr, process.stderr);
+
+        child.exited.then((code) => {
+          const sec = ((performance.now() - t0) / 1000).toFixed(1);
+          console.log(`[backfill] child done (exit ${code}) in ${sec}s`);
+          if (!profiles.length) { running = false; return; }
+
+          const u0 = performance.now();
+          const uchild = Bun.spawn(
+            [process.execPath, "run", join(ROOT, "src/cli.ts"), "sync-usage"],
+            { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env } },
+          );
+          pump(uchild.stdout, process.stdout);
+          pump(uchild.stderr, process.stderr);
+          uchild.exited.then((ucode) => {
+            console.log(`[usage] sync done (exit ${ucode}) in ${((performance.now() - u0) / 1000).toFixed(1)}s`);
+            running = false;
+          });
+        });
+      };
+
+      void spawnAll();
+      setInterval(() => void spawnAll(), INTERVAL_MS);
     }
 
     // keep process alive

@@ -24,6 +24,8 @@
     "analyze:claude": "bun run src/analyze.ts --claude",
     "analyze:html": "bun run src/analyze.ts --html",
     "analyze:compact": "bun run src/analyze.ts --compact",
+    "prices:fetch": "bun run scripts/fetch-prices.ts",
+    "prices:sync": "bun run scripts/fetch-prices.ts --apply",
     "dev": "bun run src/cli.ts serve"
   },
   "devDependencies": {

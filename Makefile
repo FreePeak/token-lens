@@ -20,6 +20,7 @@ CLI = $(BUN) run src/cli.ts
         serve hook install-hooks \
         dashboard-install dashboard-dev dashboard-build \
         analyze analyze-claude analyze-html analyze-compact \
+        prices-fetch prices-sync \
         dev test reprofile reprofile-apply
 
 help: ## show this help
@@ -100,3 +101,11 @@ reprofile: ## reprofile dry-run
 
 reprofile-apply: ## reprofile and mutate metrics.db
 	$(BUN) run scripts/reprofile.ts --apply
+
+# --- prices ------------------------------------------------------------
+
+prices-fetch: ## print latest OpenRouter model prices as Markdown table
+	$(BUN) run scripts/fetch-prices.ts
+
+prices-sync: ## merge latest OpenRouter prices into prices.json
+	$(BUN) run scripts/fetch-prices.ts --apply

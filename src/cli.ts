@@ -8,6 +8,7 @@ import { recomputeAllRollups } from "./db/queries";
 import { invalidateOverviewCache } from "./db/overview-cache";
 import { startServer } from "./server/api";
 import { listTools, getTool } from "./tools/registry";
+import { syncPricesIfStale } from "./shared/price-sync";
 import type { HookPayload } from "./shared/types";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -107,6 +108,8 @@ async function main(): Promise<void> {
     }
     const db = openMetricsDb();
     try {
+      const sync = syncPricesIfStale();
+      if (sync.ran) console.log(`[prices] auto-synced (exit ${sync.exitCode}, ${sync.durationMs}ms)`);
       console.log(`Backfilling ${tools.length} tool(s) [${incremental ? "incremental" : "full"}]: ${tools.map((t) => t.id).join(", ")}`);
       const t0 = performance.now();
       let sessions = 0, bubbles = 0, toolCalls = 0, changed = 0;

@@ -18,9 +18,9 @@ const EVENTS = [
 export function installHooks(projectRoot: string): { hooksJson: string; script: string } {
   mkdirSync(HOOKS_DIR, { recursive: true });
   const root = resolve(projectRoot);
-  const scriptPath = join(HOOKS_DIR, "cursor-metrics-hook.sh");
+  const scriptPath = join(HOOKS_DIR, "token-lens-hook.sh");
   const script = `#!/usr/bin/env bash
-# cursor-metrics hook — reads JSON stdin, appends to metrics DB
+# token-lens hook — reads JSON stdin, appends to metrics DB
 set -euo pipefail
 ROOT="${root}"
 if command -v bun >/dev/null 2>&1; then
@@ -28,7 +28,7 @@ if command -v bun >/dev/null 2>&1; then
 elif command -v node >/dev/null 2>&1; then
   exec node --import tsx "$ROOT/src/cli.ts" hook 2>/dev/null || exec bun "$ROOT/src/cli.ts" hook
 else
-  echo '{"continue":true}' 
+  echo '{"continue":true}'
   exit 0
 fi
 `;
@@ -46,7 +46,6 @@ fi
     try {
       existing = JSON.parse(readFileSync(HOOKS_JSON, "utf8")) as typeof existing;
     } catch {
-      /* start fresh but backup-ish */
       writeFileSync(`${HOOKS_JSON}.bak`, readFileSync(HOOKS_JSON));
     }
   }
@@ -55,15 +54,27 @@ fi
 
   for (const ev of EVENTS) {
     const list = Array.isArray(existing.hooks[ev]) ? [...existing.hooks[ev]!] : [];
+    // Match the new name OR the legacy `cursor-metrics-hook` so we can replace it cleanly.
     const already = list.some(
       (h) =>
         typeof h === "object" &&
         h != null &&
         "command" in h &&
-        String((h as { command: string }).command).includes("cursor-metrics-hook"),
+        (String((h as { command: string }).command).includes("token-lens-hook") ||
+          String((h as { command: string }).command).includes("cursor-metrics-hook")),
     );
-    if (!already) list.push({ command });
-    existing.hooks[ev] = list;
+    // Drop the legacy entry so we don't accumulate two hooks after renaming.
+    const dedup = list.filter(
+      (h) =>
+        !(
+          typeof h === "object" &&
+          h != null &&
+          "command" in h &&
+          String((h as { command: string }).command).includes("cursor-metrics-hook")
+        ),
+    );
+    if (!already) dedup.push({ command });
+    existing.hooks[ev] = dedup;
   }
 
   mkdirSync(dirname(HOOKS_JSON), { recursive: true });

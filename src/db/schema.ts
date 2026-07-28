@@ -1,10 +1,32 @@
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, statSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, statSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
-export const METRICS_DIR = join(homedir(), ".cursor-metrics");
+export const METRICS_DIR = tokenLensDir();
 export const METRICS_DB_PATH = join(METRICS_DIR, "metrics.db");
+
+/** New canonical dir. Old `.cursor-metrics/` is auto-migrated on first access. */
+function tokenLensDir(): string {
+  const fresh = join(homedir(), ".token-lens");
+  if (existsSync(fresh)) return fresh;
+  const legacy = join(homedir(), ".cursor-metrics");
+  if (existsSync(legacy) && !existsSync(join(legacy, "migrated-to-token-lens"))) {
+    try {
+      mkdirSync(fresh, { recursive: true });
+      for (const entry of readdirSync(legacy)) {
+        if (entry === "backfill.lock") continue;
+        renameSync(join(legacy, entry), join(fresh, entry));
+      }
+      writeFileSync(join(legacy, "migrated-to-token-lens"), new Date().toISOString());
+      console.log(`[token-lens] migrated ${legacy} → ${fresh}`);
+    } catch (err) {
+      console.error(`[token-lens] migration failed (${err instanceof Error ? err.message : err}); falling back to legacy dir`);
+      return legacy;
+    }
+  }
+  return fresh;
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS sessions (

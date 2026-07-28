@@ -1,21 +1,13 @@
 #!/usr/bin/env bun
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
 import { homedir } from "os";
-import { backfillAllProfiles, backfillIncrementalAll } from "./collector/backfill";
-import { handleHook } from "./collector/hook";
-import { installHooks } from "./collector/install-hooks";
-import {
-  loadUsageProfiles,
-  SESSION_TOKEN_FILE,
-  syncUsageProfiles,
-  USAGE_PROFILES_FILE,
-} from "./collector/sync-usage";
-import { openMetricsDb, METRICS_DB_PATH, METRICS_DIR, discoverCursorStateDbs } from "./db/schema";
+import { openMetricsDb, METRICS_DB_PATH, METRICS_DIR } from "./db/schema";
 import { recomputeAllRollups } from "./db/queries";
 import { invalidateOverviewCache } from "./db/overview-cache";
 import { startServer } from "./server/api";
+import { listTools, getTool } from "./tools/registry";
 import type { HookPayload } from "./shared/types";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -27,26 +19,29 @@ async function readStdinJson(): Promise<HookPayload> {
 }
 
 function usage(): void {
-  console.log(`cursor-metrics — local Cursor chat session metrics
+  const toolNames = listTools().map((t) => t.id).join("|");
+  console.log(`token-lens — local AI coding session metrics
 
 Usage:
-  cursor-metrics backfill [--incremental|--full]  Import sessions from all Cursor profiles
-                                            --incremental  skip unchanged composers (default for serve/cron)
-                                            --full         wipe metrics tables and re-scan everything
-  cursor-metrics sync-usage [--days N] [--profile .cur|.cursor|all]
-                                            Fetch cache R/W via desktop login tokens (.cur / .cursor)
-                                            Optional override: ${USAGE_PROFILES_FILE}
-  cursor-metrics recompute                 Recalculate session costs (incl. cache token rates from prices.json)
-  cursor-metrics serve [--port N] [--no-backfill]  API + dashboard; incremental backfill on start + every 15m
-  cursor-metrics install-hooks             Wire user hooks at ~/.cursor/hooks.json
-  cursor-metrics hook                      (internal) read hook JSON from stdin
-  cursor-metrics export [--table sessions|session_rollups]  Export table to CSV (stdout)
-  cursor-metrics cron install              Install 15-min launchd backfill cron (optional; serve already schedules)
-  cursor-metrics cron uninstall            Remove launchd plist
-  cursor-metrics cron status               Check if cron is loaded
+  token-lens backfill [--incremental|--full] [--tool ${toolNames}]
+                                            Import sessions from one or all tools.
+                                            --incremental  skip unchanged sessions (default)
+                                            --full         wipe metrics tables and re-scan
+  token-lens sync-usage [--days N] [--profile .cur|.cursor|all]
+                                            Fetch cache R/W via desktop login tokens (Cursor)
+                                            Optional override: ~/.token-lens/usage-profiles.json
+  token-lens recompute                   Recalculate session costs (incl. cache token rates from prices.json)
+  token-lens serve [--port N] [--no-backfill]  API + dashboard; incremental backfill on start + every 15m
+  token-lens install-hooks [--tool ID]    Wire tool hooks at the tool's hooks config
+  token-lens hook                        (internal) read hook JSON from stdin
+  token-lens export [--table sessions|session_rollups]  Export table to CSV (stdout)
+  token-lens cron install                Install 15-min launchd backfill cron (optional; serve already schedules)
+  token-lens cron uninstall              Remove launchd plist
+  token-lens cron status                 Check if cron is loaded
 
 Metrics DB: ${METRICS_DB_PATH}
-Discovers: Application Support/Cursor|Cur + ~/.cursor|~/.cur globalStorage state.vscdb
+Tools: ${listTools().map((t) => `${t.id} (${t.displayName})`).join(", ")}
+Cursor state: Application Support/Cursor|Cur + ~/.cursor|~/.cur globalStorage state.vscdb
 `);
 }
 
@@ -73,7 +68,13 @@ async function main(): Promise<void> {
   }
 
   if (cmd === "install-hooks") {
-    const result = installHooks(ROOT);
+    const toolId = argStr(args, "--tool") ?? "cursor";
+    const tool = getTool(toolId);
+    if (!tool?.installHooks) {
+      console.error(`token-lens: tool "${toolId}" does not support install-hooks`);
+      process.exit(1);
+    }
+    const result = tool.installHooks(ROOT);
     console.log(`Installed hooks:\n  ${result.hooksJson}\n  ${result.script}`);
     return;
   }
@@ -82,11 +83,12 @@ async function main(): Promise<void> {
     const db = openMetricsDb();
     try {
       const payload = await readStdinJson();
+      // Hook is dispatched by the tool's own shell wrapper; this is the Cursor handler.
+      const { handleHook } = await import("./collector/hook");
       handleHook(db, payload);
-      // Always allow — observational only
       process.stdout.write("{}\n");
     } catch (err) {
-      console.error("[cursor-metrics hook]", err);
+      console.error("[token-lens hook]", err);
       process.stdout.write("{}\n");
     } finally {
       db.close();
@@ -97,17 +99,30 @@ async function main(): Promise<void> {
   if (cmd === "backfill") {
     const full = args.includes("--full");
     const incremental = !full; // default resume; --full wipes
+    const toolFilter = argStr(args, "--tool");
+    const tools = toolFilter ? [getTool(toolFilter)].filter((t): t is NonNullable<typeof t> => !!t) : listTools();
+    if (!tools.length) {
+      console.error(`token-lens: no tools match "${toolFilter ?? "all"}". Known: ${listTools().map((t) => t.id).join(", ")}`);
+      process.exit(1);
+    }
     const db = openMetricsDb();
     try {
-      const paths = discoverCursorStateDbs();
-      console.log(`Backfilling ${paths.length} Cursor profile DB(s) [${incremental ? "incremental" : "full"}]:`);
-      for (const p of paths) console.log(`  ${p}`);
+      console.log(`Backfilling ${tools.length} tool(s) [${incremental ? "incremental" : "full"}]: ${tools.map((t) => t.id).join(", ")}`);
       const t0 = performance.now();
-      const result = incremental ? await backfillIncrementalAll(db) : await backfillAllProfiles(db);
+      let sessions = 0, bubbles = 0, toolCalls = 0, changed = 0;
+      for (const tool of tools) {
+        try {
+          const r = await tool.backfill(db, { resume: incremental, rollup: true });
+          sessions += r.changed;
+          bubbles += r.bubbles;
+          toolCalls += r.toolCalls;
+          changed += r.changed;
+        } catch (err) {
+          console.error(`[${tool.id}] backfill failed:`, err instanceof Error ? err.message : err);
+        }
+      }
       const sec = ((performance.now() - t0) / 1000).toFixed(1);
-      console.log(
-        `Done in ${sec}s. sessions=${result.sessions} changed=${result.changed} token_bubbles=${result.bubbles} tool_calls=${result.toolCalls} estimated=${result.estimatedSessions}`,
-      );
+      console.log(`Done in ${sec}s. sessions=${changed} bubbles=${bubbles} tool_calls=${toolCalls}`);
       console.log(`DB: ${METRICS_DB_PATH}`);
     } finally {
       db.close();
@@ -118,6 +133,7 @@ async function main(): Promise<void> {
   if (cmd === "sync-usage") {
     const days = argNum(args, "--days") ?? 7;
     const profile = argStr(args, "--profile") ?? "all";
+    const { loadUsageProfiles, SESSION_TOKEN_FILE, USAGE_PROFILES_FILE } = await import("./collector/sync-usage");
     if (!loadUsageProfiles().length) {
       console.error(
         `Missing usage profiles.\n  Write ${USAGE_PROFILES_FILE} with ".cur" / ".cursor" tokens\n  or: export CURSOR_SESSION_TOKEN=… / ${SESSION_TOKEN_FILE}`,
@@ -211,7 +227,7 @@ async function main(): Promise<void> {
     const db = openMetricsDb();
     const dist = join(ROOT, "dashboard", "dist");
     const { port: bound } = startServer(db, { port, staticDir: dist });
-    console.log(`cursor-metrics API on http://localhost:${bound}`);
+    console.log(`token-lens API on http://localhost:${bound}`);
     console.log(`Dashboard: http://localhost:${bound}/ (run dashboard:build if empty)`);
     console.log(`DB: ${METRICS_DB_PATH}`);
     console.log(
@@ -219,6 +235,7 @@ async function main(): Promise<void> {
         ? `Backfill: disabled (--no-backfill)`
         : `Backfill: on start, then every 15m (incremental)`,
     );
+    const { loadUsageProfiles, USAGE_PROFILES_FILE } = await import("./collector/sync-usage");
     const profiles = loadUsageProfiles();
     if (profiles.length) {
       console.log(`Usage sync: on start, then every 15m (${profiles.map((p) => p.name).join(", ")})`);
@@ -236,14 +253,19 @@ async function main(): Promise<void> {
       syncing = true;
       const t0 = performance.now();
       try {
-        const result = await backfillIncrementalAll(db);
-        const sec = ((performance.now() - t0) / 1000).toFixed(1);
-        console.log(
-          `[backfill] ${sec}s sessions=${result.sessions} changed=${result.changed} bubbles=${result.bubbles} tools=${result.toolCalls}`,
-        );
-        if (loadUsageProfiles().length) {
+        const cursor = getTool("cursor");
+        if (cursor) {
+          const result = await cursor.backfill(db, { resume: true, rollup: true });
+          const sec = ((performance.now() - t0) / 1000).toFixed(1);
+          console.log(
+            `[backfill] cursor ${sec}s sessions=${result.changed} bubbles=${result.bubbles} tools=${result.toolCalls}`,
+          );
+        }
+        if (loadUsageProfiles().length && cursor?.syncUsage) {
           const u0 = performance.now();
-          const usages = await syncUsageProfiles(db, { days: 7 });
+          const usages = (await cursor.syncUsage(db, { days: 7 })) as Array<{
+            profile: string; events: number; cacheReadTokens: number; cacheWriteTokens: number; conversations: number;
+          }>;
           const usec = ((performance.now() - u0) / 1000).toFixed(1);
           for (const usage of usages) {
             console.log(
@@ -271,10 +293,10 @@ async function main(): Promise<void> {
   process.exit(1);
 }
 
-export const CRON_PLIST_LABEL = "com.cursor-metrics.backfill";
+export const CRON_PLIST_LABEL = "com.token-lens.backfill";
 export const CRON_PLIST_PATH = join(
   homedir(),
-  "Library/LaunchAgents/com.cursor-metrics.backfill.plist",
+  "Library/LaunchAgents/com.token-lens.backfill.plist",
 );
 
 function cronPlist(bunPath: string, scriptPath: string): string {
@@ -331,10 +353,13 @@ function installCron(): void {
   writeFileSync(CRON_PLIST_PATH, plist, "utf-8");
   console.log(`Wrote ${CRON_PLIST_PATH}`);
 
-  // Unload first if already loaded
-  Bun.spawnSync(["launchctl", "bootout", `gui/${process.getuid?.() ?? process.pid}/${CRON_PLIST_LABEL}`], {
-    stdio: ["ignore", "ignore", "ignore"],
-  });
+  // Unload first if already loaded (works for old `com.cursor-metrics.backfill` label too)
+  const oldLabels = ["com.cursor-metrics.backfill", CRON_PLIST_LABEL];
+  for (const label of oldLabels) {
+    Bun.spawnSync(["launchctl", "bootout", `gui/${process.getuid?.() ?? process.pid}/${label}`], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+  }
 
   const result = Bun.spawnSync(["launchctl", "bootstrap", `gui/${process.getuid?.() ?? process.pid}`, CRON_PLIST_PATH], {
     stdio: ["inherit", "inherit", "inherit"],
@@ -347,18 +372,17 @@ function installCron(): void {
 }
 
 function uninstallCron(): void {
-  if (!existsSync(CRON_PLIST_PATH)) {
-    console.log("No cron plist found.");
-    return;
+  const labels = [CRON_PLIST_LABEL, "com.cursor-metrics.backfill"];
+  for (const label of labels) {
+    Bun.spawnSync(["launchctl", "bootout", `gui/${process.getuid?.() ?? process.pid}/${label}`], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
   }
-  const r = Bun.spawnSync(["launchctl", "bootout", `gui/${process.getuid?.() ?? process.pid}/${CRON_PLIST_LABEL}`], {
-    stdio: ["inherit", "inherit", "inherit"],
-  });
-  unlinkSync(CRON_PLIST_PATH);
-  if (r.exitCode === 0) {
+  if (existsSync(CRON_PLIST_PATH)) {
+    unlinkSync(CRON_PLIST_PATH);
     console.log("Cron uninstalled.");
   } else {
-    console.log("Cron plist removed (launchctl reported issue).");
+    console.log("No cron plist found.");
   }
 }
 
@@ -371,7 +395,7 @@ function cronStatus(): void {
   if (loaded) {
     console.log(`Cron: LOADED. Runs every 900s (15min).`);
   } else if (plist) {
-    console.log(`Cron: plist exists but NOT loaded. Run 'cursor-metrics cron install'.`);
+    console.log(`Cron: plist exists but NOT loaded. Run 'token-lens cron install'.`);
   } else {
     console.log(`Cron: NOT installed.`);
   }

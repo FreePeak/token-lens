@@ -1,6 +1,5 @@
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
-import { homedir } from "os";
 import { join } from "path";
 import {
   insertToolCall,
@@ -11,14 +10,14 @@ import {
   upsertTurn,
 } from "../db/queries";
 import { invalidateOverviewCache } from "../db/overview-cache";
-import { discoverCursorStateDbs, profileFromStatePath } from "../db/schema";
+import { discoverCursorStateDbs, profileFromStatePath, METRICS_DIR } from "../db/schema";
 import { charsToTokens, contentChars, normalizeToolLabel } from "../shared/tools";
 
 const MAX_VALUE_CHARS = 2_000_000;
 const PROGRESS_EVERY = 5_000;
 /** Above this many changed composers, one full bubble pass beats N range scans. */
 const FULL_SCAN_CHANGED_THRESHOLD = 80;
-const BACKFILL_LOCK = join(homedir(), ".cursor-metrics", "backfill.lock");
+const BACKFILL_LOCK = join(METRICS_DIR, "backfill.lock");
 
 type ComposerHeader = {
   composerId?: string;
@@ -585,8 +584,7 @@ export async function backfillFromCursor(
 
 /** Try to acquire pid-file lock. Returns cleanup fn if acquired, null if another process holds it. */
 function acquireBackfillLock(): (() => void) | null {
-  const dir = join(homedir(), ".cursor-metrics");
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(METRICS_DIR, { recursive: true });
   if (existsSync(BACKFILL_LOCK)) {
     const stale = readFileSync(BACKFILL_LOCK, "utf-8").trim();
     const pid = Number(stale);
@@ -619,6 +617,10 @@ export async function backfillIncrementalAll(metricsDb: Database): Promise<Backf
 
   try {
     const paths = discoverCursorStateDbs();
+    if (!paths.length) {
+      console.log("[backfill] no Cursor state.vscdb found — nothing to do");
+      return { sessions: 0, bubbles: 0, toolCalls: 0, estimatedSessions: 0, path: "", paths: [], skippedHuge: 0, changed: 0 };
+    }
     let sessions = 0;
     let bubbles = 0;
     let toolCalls = 0;

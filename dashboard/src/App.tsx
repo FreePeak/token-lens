@@ -38,7 +38,7 @@ export function App() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 py-6">
         {/* Header */}
         <header className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b border-border">
-          <h1 className="text-xl font-semibold tracking-tight">Cursor Metrics</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Token Lens</h1>
           <nav className="flex gap-1">
             {(
               [

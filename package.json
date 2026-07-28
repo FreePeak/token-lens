@@ -1,10 +1,10 @@
 {
-  "name": "cursor-metrics",
-  "version": "0.1.0",
+  "name": "token-lens",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "bin": {
-    "cursor-metrics": "./src/cli.ts"
+    "token-lens": "./src/cli.ts"
   },
   "scripts": {
     "backfill": "bun run src/cli.ts backfill",

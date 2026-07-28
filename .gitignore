@@ -6,3 +6,6 @@ dashboard/dist/
 *.log
 # Cursor dashboard session cookie (WorkosCursorSessionToken) — never commit
 session-token
+# Generated analysis reports — may contain personal session data
+cursor-token-waste-*.html
+dashboard/build-err.txt

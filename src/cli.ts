@@ -271,10 +271,10 @@ async function main(): Promise<void> {
   process.exit(1);
 }
 
-export const CRON_PLIST_LABEL = "dev.linhdoan.cursor-metrics.backfill";
+export const CRON_PLIST_LABEL = "com.cursor-metrics.backfill";
 export const CRON_PLIST_PATH = join(
   homedir(),
-  "Library/LaunchAgents/dev.linhdoan.cursor-metrics.backfill.plist",
+  "Library/LaunchAgents/com.cursor-metrics.backfill.plist",
 );
 
 function cronPlist(bunPath: string, scriptPath: string): string {

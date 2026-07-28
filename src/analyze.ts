@@ -63,10 +63,13 @@ function where(opts: {
 async function main() {
   const args = process.argv.slice(2);
 
+  const compact = args.includes("--compact");
+
   const topN = (() => {
     const i = args.indexOf("--sessions");
     const v = i >= 0 ? Number(args[i + 1]) : NaN;
-    return Number.isFinite(v) && v > 0 ? v : 10;
+    if (Number.isFinite(v) && v > 0) return v;
+    return compact ? 5 : 10;
   })();
 
   const sinceDays = (() => {
@@ -89,7 +92,7 @@ async function main() {
     const v = args[i + 1];
     return v && !v.startsWith("--") ? v : null;
   })();
-  const detailN = 3;
+  const detailN = compact ? 2 : 3;
   const sinceMs = Date.now() - sinceDays * 24 * 60 * 60 * 1000;
   const db = openMetricsDb();
   const w = where({ sinceMs, profile });
@@ -591,8 +594,9 @@ async function main() {
               cache_read_tokens, cache_write_tokens,
               estimated, created_at
        FROM token_snapshots WHERE conversation_id = ?
-       ORDER BY COALESCE(created_at, 0)`,
+       ORDER BY COALESCE(created_at, 0) LIMIT ?`,
       s.conversation_id,
+      compact ? 30 : 1000, // ponytail: 1000 is a safety ceiling, not a goal
     );
 
     if (snapshots.length > 0) {
@@ -623,8 +627,9 @@ async function main() {
     }>(
       db,
       `SELECT context_tokens, context_usage_percent, context_window_size, created_at
-       FROM context_events WHERE conversation_id = ? ORDER BY created_at`,
+       FROM context_events WHERE conversation_id = ? ORDER BY created_at LIMIT ?`,
       s.conversation_id,
+      compact ? 30 : 1000, // ponytail: 1000 is a safety ceiling, not a goal
     );
 
     if (ctxs.length > 0) {
@@ -662,7 +667,7 @@ async function main() {
 
   if (firstPrompts.length > 0) {
     for (const fp of firstPrompts) {
-      out += `- **${fp.conversation_id.slice(0, 10)}…** (${USD(fp.total_cost_usd)}): "${(fp.first_prompt ?? "").slice(0, 200)}"\n`;
+      out += `- **${fp.conversation_id.slice(0, 10)}…** (${USD(fp.total_cost_usd)}): "${(fp.first_prompt ?? "").slice(0, compact ? 80 : 200)}"\n`;
     }
   }
 
@@ -696,8 +701,9 @@ async function main() {
   }
 
   // --- Section 13: Root Cause Questions ---
-  out += H2("Root Cause Analysis — Questions for Claude");
-  out += `
+  if (!compact) {
+    out += H2("Root Cause Analysis — Questions for Claude");
+    out += `
 Review the data above and identify the **top 3-5 root causes** of high token usage. For each cause:
 
 1. **Pattern**: What do you see in the data? Cite specific session IDs and numbers.
@@ -719,6 +725,7 @@ DB path: ${METRICS_DB_PATH}
 Query directly with: sqlite3 ${METRICS_DB_PATH}
 \`\`\`
 `;
+  }
 
   // --- HTML export ---
   const htmlFile = htmlPath ?? (useHtml ? `cursor-token-waste-${new Date().toISOString().slice(0, 10)}.html` : null);
@@ -742,7 +749,7 @@ Query directly with: sqlite3 ${METRICS_DB_PATH}
       console.error("[analyze] `claude` CLI not found. Printing report to stdout instead.");
       console.log(out);
     } else {
-      console.error("[analyze] Piping report to claude for analysis...");
+      console.error(`[analyze] Piping ${out.length} bytes to claude for analysis${compact ? " (compact)" : ""}...`);
       const proc = Bun.spawn({
         cmd: ["claude"],
         stdin: "pipe",

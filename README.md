@@ -118,6 +118,17 @@ Events: `sessionStart`, `sessionEnd`, `stop`, `postToolUse`, `postToolUseFailure
 
 Metrics DB: `~/.cursor-metrics/metrics.db`
 
+## Analyze
+
+```bash
+bun run analyze             # markdown report to stdout
+bun run analyze:claude      # pipe markdown to claude
+bun run analyze:html        # export to HTML (default: cursor-token-waste-YYYY-MM-DD.html)
+bun run analyze:compact     # trim the report for piping into claude / agents
+```
+
+`--compact` keeps the same sections but caps deep-dive rows (top 5 sessions, 2 deep dives, 30 snapshots/events per dive, 80-char first prompts) and skips the trailing "Questions for Claude" block. Use when `analyze:claude` overflows the agent's context.
+
 ## Privacy
 
 - Reads Cursor `state.vscdb` in read-only mode

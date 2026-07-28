@@ -23,6 +23,7 @@
     "analyze": "bun run src/analyze.ts",
     "analyze:claude": "bun run src/analyze.ts --claude",
     "analyze:html": "bun run src/analyze.ts --html",
+    "analyze:compact": "bun run src/analyze.ts --compact",
     "dev": "bun run src/cli.ts serve"
   },
   "devDependencies": {

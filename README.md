@@ -1,166 +1,214 @@
-# Token Lens
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/FreePeak/token-lens/main/.github/hero-dark.svg">
+  <img alt="Token Lens — Local AI Coding Session Dashboard" src="https://raw.githubusercontent.com/FreePeak/token-lens/main/.github/hero-light.svg">
+</picture>
 
-Local-only dashboard for AI coding sessions: **turns**, **tool calls**, **file reads**, **input/output tokens**, and **estimated cost**.
+<p align="center">
+  <b>See exactly where your AI coding budget goes — turns, tokens, and cost per session.</b>
+</p>
 
-Cursor is the first supported tool. The collector is built around a tool registry that will grow to Claude Code and OpenCode — see [Supported tools](#supported-tools) below.
+<p align="center">
+  <a href="#quick-start"><strong>Quick start</strong></a> ·
+  <a href="#features"><strong>Features</strong></a> ·
+  <a href="#dashboard"><strong>Dashboard</strong></a> ·
+  <a href="#cli"><strong>CLI</strong></a> ·
+  <a href="#supported-tools"><strong>Supported tools</strong></a> ·
+  <a href="#contributing"><strong>Contributing</strong></a>
+</p>
 
-All data stays on your machine. Nothing is uploaded.
+<p align="center">
+  <img src="https://img.shields.io/badge/bun-≥1.0-f9f9f9?style=flat&logo=bun" alt="Bun">
+  <img src="https://img.shields.io/github/license/FreePeak/token-lens" alt="MIT">
+  <img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs welcome">
+  <img src="https://img.shields.io/github/stars/FreePeak/token-lens" alt="GitHub stars">
+  <img src="https://img.shields.io/github/v/release/FreePeak/token-lens" alt="Latest release">
+</p>
+
+---
+
+## What is Token Lens?
+
+**Token Lens** is a local-first dashboard that turns your AI coding sessions into transparent cost and usage data. It reads from Cursor's local state database, captures live hooks, and estimates spending based on each model's public API pricing.
+
+No data leaves your machine. Nothing is uploaded. The privacy guarantee is baked into the architecture.
+
+If you use AI coding tools daily, you've probably asked: *"How many tokens did that session burn?"* or *"Which model is driving up my bill?"* Token Lens answers those questions — for free, offline, and instantly.
 
 ## Quick start
 
-Requires [Bun](https://bun.sh).
-
 ```bash
+# Requires Bun ≥1.0 — install: https://bun.sh
+git clone https://github.com/FreePeak/token-lens.git
 cd token-lens
+
+# Install dependencies
 bun install
 cd dashboard && bun install && cd ..
 
-# Import historical chats from all discovered Cursor profile DBs
+# Import historical sessions from Cursor
 bun run backfill
 
-# Wire live capture (user-level hooks for all projects)
+# Wire live capture hooks (restart Cursor after this)
 bun run install-hooks
-# Restart Cursor once so hooks load
 
-# Build UI + serve API
+# Build dashboard UI + start server
 cd dashboard && bun run build && cd ..
 bun run serve
 ```
 
-Open [http://localhost:3847](http://localhost:3847).
+Open [http://localhost:3847](http://localhost:3847). That's it.
 
-Dev UI (API must be running): `bun run serve` in one terminal, `cd dashboard && bun run dev` in another.
+### What you'll see right away
+
+- **Overview** — total sessions, turns, token burn, and estimated cost
+- **Sessions** — per-conversation breakdown with model, cost, tokens, and duration
+- **Drivers** — top tools, models, and cost-per-turn analysis
+- **Detail view** — drill into any session for token timeline, context pressure, and tool usage
+
+## Features
+
+| | Feature | How it works |
+|---|---|---|
+| 📊 | **Local dashboard** | SQLite + Bun server, serves a React UI on `localhost:3847` |
+| 🔌 | **Multi-tool registry** | Cursor today, Claude Code and OpenCode stubs ready — add a tool in one file |
+| ⚡ | **Live capture** | Cursor hooks (`sessionStart`, `postToolUse`, `afterAgentResponse`) stream data in real time |
+| 📜 | **Historical backfill** | Scans `state.vscdb` for all past sessions — incremental or full |
+| 💰 | **Cost estimates** | Model pricing from `prices.json` (DeepSeek, Grok, Claude, GPT, Gemini, and more) |
+| 🧠 | **Prompt cache tracking** | Syncs cache read/write tokens from Cursor's dashboard API using your local login |
+| 📈 | **Token waste analysis** | CLI report generator — top spenders, context bloat, cache misses, search-vs-graph patterns |
+| 🔒 | **100% local** | No telemetry, no uploads, no accounts. Reads `state.vscdb` read-only. |
+| 🕐 | **Auto-sync** | Backfills and syncs usage every 15 minutes when the server is running |
+| 🖥️ | **CLI tools** | Export to CSV, pipe analysis to Claude, install launchd cron |
+
+## Dashboard
+
+The dashboard auto-detects Cursor profiles (`.cursor`, `.cur`) and lets you filter by time range and profile.
+
+![Token Lens Dashboard overview](https://raw.githubusercontent.com/FreePeak/token-lens/main/.github/screenshot-overview.png)
+
+| Page | What it shows |
+|---|---|
+| **Overview** | Aggregate metrics, cost by profile, global trends |
+| **Sessions** | Every conversation with token and cost breakdown |
+| **Drivers** | Tool distribution, model frequency, efficiency scores |
+| **Detail** | Full token timeline, context pressure, per-turn tool usage |
+
+## CLI
+
+```text
+token-lens — local AI coding session metrics
+
+Usage:
+  token-lens backfill [--incremental|--full] [--tool cursor|claude-code|opencode]
+  token-lens sync-usage [--days N] [--profile .cur|.cursor|all]
+  token-lens recompute
+  token-lens serve [--port N] [--no-backfill]
+  token-lens install-hooks [--tool ID]
+  token-lens hook                              (internal)
+  token-lens export [--table sessions|session_rollups]
+  token-lens cron install|uninstall|status
+  token-lens analyze [--since DAYS] [--sessions N] [--profile NAME]
+  token-lens analyze:claude
+  token-lens analyze:html
+  token-lens analyze:compact
+```
+
+Run `bun run <script>` or `make <target>` for the equivalent Makefile targets.
 
 ## Supported tools
 
-| Tool | Status | Backfill | Hooks | Usage sync |
-|------|--------|----------|-------|------------|
-| **Cursor** | ✅ implemented (`--tool cursor`) | yes | yes | yes (dashboard API) |
-| **Claude Code** | 🟡 stub (`--tool claude-code`) | throws "not yet implemented" | — | — |
-| **OpenCode** | 🟡 stub (`--tool opencode`) | throws "not yet implemented" | — | — |
+| Tool | Status | Backfill | Live hooks | Usage sync |
+|---|---|---|---|---|
+| **Cursor** | ✅ Complete | ✅ | ✅ | ✅ (dashboard API) |
+| **Claude Code** | 🟡 Stub | ❌ | ❌ | ❌ |
+| **OpenCode** | 🟡 Stub | ❌ | ❌ | ❌ |
 
-Backfill filters via `--tool <id>`. Omit the flag to fan out across every registered tool.
+Adding a tool = create `src/tools/<id>.ts` implementing the `Tool` interface and register it. The CLI, dashboard, and cron pick it up automatically.
 
-```bash
-bun run backfill --tool cursor         # default
-bun run backfill --tool claude-code    # currently fails loudly with a clear message
-```
+## Pricing data
 
-Adding a new tool = drop a `src/tools/<id>.ts` that implements `Tool` (`src/tools/types.ts`) and call `registerTool` in `src/tools/registry.ts`. The CLI, dashboard, and cron pick it up.
-
-## What it measures
-
-| Metric | Cursor (live hooks) | Cursor (historical backfill) |
-|--------|---------------------|------------------------------|
-| Turns | `stop` / `afterAgentResponse` | Assistant bubbles |
-| Tool calls | `postToolUse` | Bubble `toolResults` when present |
-| File reads | Tool name `Read` / `TabRead` | Same |
-| Tokens (in/out) | `afterAgentResponse` `input_tokens` / `output_tokens` | Bubble `tokenCount` when non-zero |
-| Cache read/write tokens | `afterAgentResponse` **or** `sync-usage` (dashboard API) | `bun run sync-usage` (see below) |
-| Cost | Estimated via `prices.json` (+ 0.1×/1.25× input for cache R/W when unset) | Same |
-| Duration | `sessionStart` → `sessionEnd` | Header timestamps |
-
-### Prompt-cache tokens (important)
-
-Cursor's local `state.vscdb` bubbles only persist `tokenCount: { inputTokens, outputTokens }`. Runtime fields `cacheReadTokens` / `cacheWriteTokens` are **not** written to bubble JSON.
-
-**Historical cache tokens** come from Cursor's dashboard API. Auth is read automatically from local app logins:
-
-| Profile | Token source |
-|---------|--------------|
-| `.cur` | `~/.cur/.../state.vscdb` → `cursorAuth/accessToken` |
-| `.cursor` | `~/Library/Application Support/Cursor/.../state.vscdb` → `cursorAuth/accessToken` (+ `cachedTeam`) |
-
-```bash
-bun run sync-usage                         # both profiles, last 7 days
-bun run sync-usage -- --profile .cursor
-bun run sync-usage -- --profile .cur
-bun run recompute
-```
-
-Optional `~/.token-lens/usage-profiles.json` can set `teamId` / `userId` only (desktop token stays authoritative). Legacy aliases `personal`→`.cur`, `company`→`.cursor`.
-
-When profiles are found, `bun run serve` syncs them every 15 minutes.
-
-- **Live hooks**: cache from `afterAgentResponse` (attributed to `.cursor`)
-- **sync-usage**: authoritative cache for the date window; tags stub sessions with `.cur` / `.cursor`
-- **Backfill alone**: cache stays `0` until you sync-usage or capture via hooks
-- Full backfill **keeps** `dash:*` cache rows
-
-## Profile data sources (Cursor backfill)
-
-Backfill scans every **existing** `User/globalStorage/state.vscdb` that holds composer/bubble data among:
-
-| Path | Role on this machine |
-|------|----------------------|
-| `~/Library/Application Support/Cursor/…/state.vscdb` | Main Cursor app (macOS) — usually the large DB |
-| `~/.cur/User/globalStorage/state.vscdb` | Separate Cursor-family data root (not a symlink to `~/.cursor`) when present |
-| `~/.cursor/User/globalStorage/state.vscdb` | Rarely has composer bubbles; `~/.cursor` is mainly hooks/extensions/projects |
-| `~/Library/Application Support/Cur/…/state.vscdb` | Alternate "Cur" app support dir (included only if it has real bubble/header data) |
-| `~/.config/Cursor/…/state.vscdb` | Linux Cursor |
-
-Empty or header-less stubs are skipped. Backfill is a **single-pass** read of `bubbleId:%` keys (not one `LIKE` per composer).
-
-## Migrating from `~/.cursor-metrics/`
-
-If you upgraded from a previous install, the metrics dir is auto-migrated on first access:
-
-```
-~/.cursor-metrics/  →  ~/.token-lens/
-```
-
-A marker file (`migrated-to-token-lens`) is left in the old dir so the migration is one-shot. The dashboard UI title, CLI binary, hook script, and launchd label are all renamed. The legacy `cursor-metrics-hook.sh` entry in `~/.cursor/hooks.json` is replaced (not duplicated) when you re-run `bun run install-hooks`.
-
-## Pricing
-
-Edit [`prices.json`](prices.json) (USD per 1M tokens). Matching is substring on the model name (normalized). Included:
+Token Lens ships with a `prices.json` covering popular models:
 
 - DeepSeek V4 Flash / Pro
 - Grok 4.5
-- Claude, GPT, Gemini, Composer, MiniMax
+- Claude, GPT, Gemini, GPT Composer, MiniMax
 
-These are **API list-price estimates**, not Cursor invoice line items. Cache tokens use `cache_read` / `cache_write` in `prices.json` (Claude-style 0.1×/1.25× input by default; OpenAI/composer 0.5×; Gemini/Grok 0.25×). After changing prices or syncing usage:
+Prices are **API list-price estimates** in USD per 1M tokens — not Cursor invoice line items. Cache tokens use model-specific rates (Claude: 0.1× read / 1.25× write, OpenAI: 0.5×, Gemini/Grok: 0.25×).
 
-```bash
-bun run sync-usage   # refresh cache tokens from dashboard
-bun run recompute    # recalculate all session costs
-```
-
-## Overview cache
-
-The `/api/overview` payload is cached in the `overview_cache` SQLite table (single row, key
-`"default"`). The cache is invalidated whenever new rollups are computed:
-
-- `backfill` (incremental + full) — at the end of the scan
-- `sync-usage` — after the per-profile sync loop
-- `recompute` — after recomputing all rollups
-
-Between invalidations, the unfiltered overview is served from the cache. The filtered overview
-(`?days=` / `?profile=`) always bypasses the cache. If the count of `session_rollups` grows past
-the cached snapshot's `source_session_count`, the next request recomputes lazily.
-
-## Hooks
-
-`bun run install-hooks` merges into `~/.cursor/hooks.json` and installs `~/.cursor/hooks/token-lens-hook.sh`.
-
-Events: `sessionStart`, `sessionEnd`, `stop`, `postToolUse`, `postToolUseFailure`, `preCompact`, `afterAgentResponse`.
-
-Metrics DB: `~/.token-lens/metrics.db`
-
-## Analyze
+Update pricing at any time:
 
 ```bash
-bun run analyze             # markdown report to stdout
-bun run analyze:claude      # pipe markdown to claude
-bun run analyze:html        # export to HTML (default: token-lens-YYYY-MM-DD.html)
-bun run analyze:compact     # trim the report for piping into claude / agents
+bun run prices:fetch       # print latest OpenRouter prices
+bun run prices:sync        # merge into prices.json
+bun run sync-usage         # refresh cache tokens
+bun run recompute          # recalculate all session costs
 ```
 
-`--compact` keeps the same sections but caps deep-dive rows (top 5 sessions, 2 deep dives, 30 snapshots/events per dive, 80-char first prompts) and skips the trailing "Questions for Claude" block. Use when `analyze:claude` overflows the agent's context.
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    Token Lens                         │
+│                                                       │
+│  ~/.token-lens/                                       │
+│   └── metrics.db          SQLite (sessions, rollups)  │
+│                                                       │
+│  Cursor state.vscdb       Read-only source DB         │
+│  Cursor hooks.json        Live capture via hooks      │
+│  Cursor dashboard API     Cache token sync            │
+│                                                       │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────────┐    │
+│  │ backfill │  │  hooks   │  │  sync-usage      │    │
+│  │ scanner  │  │ handler  │  │  (dashboard API)  │    │
+│  └────┬─────┘  └────┬─────┘  └───────┬──────────┘    │
+│       └──────────────┴───────────────┘                │
+│                              ▼                         │
+│                     ┌──────────────┐                   │
+│                     │   SQLite DB  │                   │
+│                     └──────┬───────┘                   │
+│                            ▼                            │
+│  ┌──────────┐  ┌─────────────┐  ┌────────────────┐    │
+│  │  Bun API │  │  Dashboard  │  │  analyze/report │    │
+│  │  server  │  │  (React)    │  │  (CLI)          │    │
+│  └──────────┘  └─────────────┘  └────────────────┘    │
+└─────────────────────────────────────────────────────────┘
+```
 
 ## Privacy
 
-- Reads Cursor `state.vscdb` in read-only mode
-- Optional `sync-usage` calls cursor.com with your session cookie (stays on your machine otherwise)
-- Stores aggregates + tool names only in `~/.token-lens/`
-- Does not send metrics data off-machine (except the authenticated usage pull you opt into)
+Token Lens is designed around a hard privacy boundary:
+
+- **Reads Cursor `state.vscdb` in read-only mode** — never writes to it
+- **Optional `sync-usage`** calls cursor.com using **your local session cookie** — only to fetch cache-token data that isn't stored locally
+- **Stores only aggregates + tool names** in `~/.token-lens/metrics.db`
+- **No telemetry, no analytics, no tracking** — the project itself has zero analytics code
+- **No accounts, no sign-up, no cloud** — everything runs on `localhost:3847`
+
+## Roadmap
+
+- [ ] Claude Code backfill and hooks
+- [ ] OpenCode backfill and hooks
+- [ ] Export to shareable reports
+- [ ] Plugin system for custom cost models
+- [ ] Alerts (weekly budget report, unusual spend detection)
+
+*Open an issue to suggest something.*
+
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
+
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security policy](SECURITY.md)
+- [Bug reports](https://github.com/FreePeak/token-lens/issues/new?template=bug_report.md)
+- [Feature requests](https://github.com/FreePeak/token-lens/issues/new?template=feature_request.md)
+
+## License
+
+MIT © [Token Lens Contributors](LICENSE)
+
+---
+
+<p align="center">
+  <sub>Built for developers who want to understand their AI tooling costs. No strings attached. No cloud. No catch.</sub>
+</p>

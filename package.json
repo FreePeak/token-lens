@@ -1,8 +1,31 @@
 {
   "name": "token-lens",
   "version": "0.2.0",
-  "private": true,
+  "description": "Local-only dashboard for AI coding sessions. Track turns, tokens, cost across Cursor, Claude Code, and OpenCode. All data stays on your machine.",
   "type": "module",
+  "license": "MIT",
+  "homepage": "https://github.com/FreePeak/token-lens#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FreePeak/token-lens.git"
+  },
+  "bugs": {
+    "url": "https://github.com/FreePeak/token-lens/issues"
+  },
+  "keywords": [
+    "cursor",
+    "claude-code",
+    "opencode",
+    "ai-coding",
+    "token-tracking",
+    "llm-cost",
+    "development-tool",
+    "metrics",
+    "dashboard"
+  ],
+  "engines": {
+    "bun": ">=1.0.0"
+  },
   "bin": {
     "token-lens": "./src/cli.ts"
   },

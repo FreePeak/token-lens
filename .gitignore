@@ -4,8 +4,17 @@ dashboard/dist/
 *.db
 .DS_Store
 *.log
-# Cursor dashboard session cookie (WorkosCursorSessionToken) — never commit
+
+# Personal data
 session-token
-# Generated analysis reports — may contain personal session data
 token-lens-*.html
 dashboard/build-err.txt
+
+# Worktrees (feature branches)
+.worktrees/
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/settings.json

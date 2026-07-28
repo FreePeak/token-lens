@@ -1,4 +1,4 @@
-# cursor-metrics — Makefile
+# token-lens — Makefile
 #
 # Mirrors every script in package.json plus every subcommand exposed by
 # src/cli.ts. Use `make help` to list targets. Override Bun with
@@ -61,7 +61,7 @@ serve: ## run API + dashboard (--port N, --no-backfill)
 hook: ## run a single hook invocation (reads JSON from stdin)
 	$(CLI) hook
 
-install-hooks: ## wire Cursor hooks at ~/.cursor/hooks.json
+install-hooks: ## wire Cursor hooks at ~/.cursor/hooks.json (token-lens-hook.sh)
 	$(CLI) install-hooks
 
 # --- dashboard (cd into dashboard/) ----------------------------------

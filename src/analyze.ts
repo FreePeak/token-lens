@@ -728,7 +728,7 @@ Query directly with: sqlite3 ${METRICS_DB_PATH}
   }
 
   // --- HTML export ---
-  const htmlFile = htmlPath ?? (useHtml ? `cursor-token-waste-${new Date().toISOString().slice(0, 10)}.html` : null);
+  const htmlFile = htmlPath ?? (useHtml ? `token-lens-${new Date().toISOString().slice(0, 10)}.html` : null);
   if (htmlFile) {
     const html = mdToHtml(out);
     Bun.write(htmlFile, html);

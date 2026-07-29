@@ -1,6 +1,6 @@
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/FreePeak/token-lens/main/.github/hero-dark.svg">
-  <img alt="Token Lens — Local AI Coding Session Dashboard" src="https://raw.githubusercontent.com/FreePeak/token-lens/main/.github/hero-light.svg">
+  <source media="(prefers-color-scheme: dark)" srcset=".github/hero-dark.svg">
+  <img alt="Token Lens - Local AI Coding Session Dashboard" src=".github/hero-light.svg">
 </picture>
 
 <p align="center">
@@ -84,7 +84,7 @@ Open [http://localhost:3847](http://localhost:3847). That's it.
 
 The dashboard auto-detects Cursor profiles (`.cursor`, `.cur`) and lets you filter by time range and profile.
 
-![Token Lens Dashboard overview](https://raw.githubusercontent.com/FreePeak/token-lens/main/.github/screenshot-overview.png)
+![Token Lens Dashboard overview](https://raw.githubusercontent.com/FreePeak/token-lens/master/.github/screenshot-overview.png)
 
 | Page | What it shows |
 |---|---|

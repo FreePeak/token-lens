@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-label="Token Lens — Local AI Coding Session Dashboard">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbfcfe"/>
+      <stop offset="1" stop-color="#eef2f7"/>
+    </linearGradient>
+    <radialGradient id="lensGlass" cx="0.5" cy="0.5" r="0.6">
+      <stop offset="0" stop-color="#a5b4fc" stop-opacity="0.55"/>
+      <stop offset="0.7" stop-color="#6366f1" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#4338ca" stop-opacity="0.05"/>
+    </radialGradient>
+    <radialGradient id="lensGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#6366f1" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#6366f1" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#f8fafc"/>
+    </linearGradient>
+    <pattern id="dots" x="0" y="0" width="32" height="32" patternUnits="userSpaceOnUse">
+      <circle cx="1.2" cy="1.2" r="1.2" fill="#cbd5e1" opacity="0.35"/>
+    </pattern>
+    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#dots)"/>
+
+  <!-- left text block -->
+  <g font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+    <g transform="translate(80,120)">
+      <rect width="232" height="34" rx="17" fill="#eef2ff" stroke="#c7d2fe"/>
+      <circle cx="20" cy="17" r="4.5" fill="#6366f1"/>
+      <text x="34" y="22" font-size="12" font-weight="700" fill="#4338ca" letter-spacing="1.5">LOCAL-FIRST | v0.2.0</text>
+    </g>
+
+    <text x="80" y="270" font-size="96" font-weight="800" fill="#0f172a" letter-spacing="-3">Token Lens</text>
+
+    <text x="80" y="330" font-size="26" font-weight="500" fill="#334155">See exactly where your AI coding</text>
+    <text x="80" y="365" font-size="26" font-weight="500" fill="#334155">budget goes — turns, tokens, cost.</text>
+
+    <g transform="translate(80,430)">
+      <g>
+        <rect width="96" height="38" rx="19" fill="#ffffff" stroke="#e2e8f0"/>
+        <text x="48" y="25" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle">Cursor</text>
+      </g>
+      <g transform="translate(112,0)">
+        <rect width="132" height="38" rx="19" fill="#ffffff" stroke="#e2e8f0"/>
+        <text x="66" y="25" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle">Claude Code</text>
+      </g>
+      <g transform="translate(260,0)">
+        <rect width="116" height="38" rx="19" fill="#ffffff" stroke="#e2e8f0"/>
+        <text x="58" y="25" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle">OpenCode</text>
+      </g>
+    </g>
+
+    <text x="80" y="560" font-size="15" font-weight="500" fill="#64748b">100% on your machine | localhost:3847 | no accounts | no uploads</text>
+  </g>
+
+  <!-- right visualization -->
+  <g transform="translate(740,60)">
+    <!-- floating dashboard card -->
+    <g transform="translate(290,40)" filter="url(#cardShadow)">
+      <rect width="260" height="140" rx="18" fill="url(#card)" stroke="#e2e8f0"/>
+      <text x="22" y="34" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" font-weight="700" fill="#64748b" letter-spacing="1.5">SESSION 47 | claude-3.5-sonnet</text>
+      <text x="22" y="78" font-family="ui-sans-serif, system-ui, sans-serif" font-size="34" font-weight="800" fill="#0f172a">$1.24</text>
+      <text x="22" y="100" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="500" fill="#64748b">47,231 tokens | 12 turns | 18 min</text>
+      <polyline points="22,124 56,118 90,120 124,104 158,108 192,94 226,98 240,86"
+                fill="none" stroke="#6366f1" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="240" cy="86" r="4" fill="#6366f1"/>
+    </g>
+
+    <!-- lens glow halo -->
+    <circle cx="220" cy="280" r="220" fill="url(#lensGlow)"/>
+
+    <!-- lens -->
+    <g transform="translate(60,120)">
+      <circle cx="160" cy="160" r="150" fill="none" stroke="#c7d2fe" stroke-width="1.5" opacity="0.6"/>
+      <circle cx="160" cy="160" r="130" fill="url(#lensGlass)"/>
+      <circle cx="160" cy="160" r="130" fill="none" stroke="#6366f1" stroke-width="3"/>
+      <circle cx="160" cy="160" r="92" fill="none" stroke="#818cf8" stroke-width="1.5" opacity="0.7"/>
+      <g stroke="#6366f1" stroke-width="1.5" fill="none" opacity="0.35">
+        <path d="M160 36 L 218 92 L 160 160 Z"/>
+        <path d="M284 160 L 228 218 L 160 160 Z"/>
+        <path d="M160 284 L 102 228 L 160 160 Z"/>
+        <path d="M36 160 L 92 102 L 160 160 Z"/>
+      </g>
+      <circle cx="160" cy="160" r="9" fill="#4338ca"/>
+      <circle cx="160" cy="160" r="3" fill="#ffffff"/>
+
+      <!-- highlight reflection -->
+      <path d="M70 110 Q 110 60 200 60" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.55"/>
+    </g>
+
+    <!-- streaming token chips -->
+    <g font-family="ui-monospace, 'SF Mono', Menlo, monospace" font-size="12" font-weight="700">
+      <g transform="translate(20,40)">
+        <rect width="74" height="28" rx="14" fill="#ddd6fe" stroke="#c4b5fd"/>
+        <text x="37" y="19" fill="#5b21b6" text-anchor="middle">128k</text>
+      </g>
+      <g transform="translate(8,420)">
+        <rect width="68" height="28" rx="14" fill="#c7d2fe" stroke="#a5b4fc"/>
+        <text x="34" y="19" fill="#3730a3" text-anchor="middle">8.2k</text>
+      </g>
+      <g transform="translate(360,250)">
+        <rect width="84" height="28" rx="14" fill="#fef3c7" stroke="#fde68a"/>
+        <text x="42" y="19" fill="#92400e" text-anchor="middle">$0.34</text>
+      </g>
+      <g transform="translate(380,460)">
+        <rect width="80" height="28" rx="14" fill="#d1fae5" stroke="#a7f3d0"/>
+        <text x="40" y="19" fill="#065f46" text-anchor="middle">cache</text>
+      </g>
+      <g transform="translate(140,470)">
+        <rect width="90" height="28" rx="14" fill="#fce7f3" stroke="#fbcfe8"/>
+        <text x="45" y="19" fill="#9d174d" text-anchor="middle">14 turns</text>
+      </g>
+    </g>
+  </g>
+</svg>

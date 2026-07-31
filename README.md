@@ -58,6 +58,10 @@ bun run serve
 
 Open [http://localhost:3847](http://localhost:3847). That's it.
 
+#### Dev mode (HMR + API auto-restart)
+
+For iterating on the UI, `bun run dev` (or `make dev`) runs both processes in parallel: the API with `bun --watch` and Vite with HMR. Open `http://localhost:5173` — Vite proxies `/api` to the API on `:3847`. Edits under `dashboard/src/` hot-reload; edits under `src/` restart the API.
+
 ### What you'll see right away
 
 - **Overview** — total sessions, turns, token burn, and estimated cost
@@ -84,14 +88,30 @@ Open [http://localhost:3847](http://localhost:3847). That's it.
 
 The dashboard auto-detects Cursor profiles (`.cursor`, `.cur`) and lets you filter by time range and profile.
 
-![Token Lens Dashboard overview](https://raw.githubusercontent.com/FreePeak/token-lens/master/.github/screenshot-overview.png)
+### Overview
 
-| Page | What it shows |
-|---|---|
-| **Overview** | Aggregate metrics, cost by profile, global trends |
-| **Sessions** | Every conversation with token and cost breakdown |
-| **Drivers** | Tool distribution, model frequency, efficiency scores |
-| **Detail** | Full token timeline, context pressure, per-turn tool usage |
+Aggregate metrics, cost by model, and top tools by call volume.
+
+![Token Lens Overview](.github/screenshot-overview.png)
+
+### Sessions
+
+Every conversation with model, cost, tokens, cache reads, and duration. Sortable by date, cost, or duration.
+
+![Token Lens Sessions](.github/screenshot-sessions.png)
+
+### Drivers
+
+Top cost drivers grouped by tool, model, or workspace — efficiency scores and call distribution.
+
+![Token Lens Drivers — by tool](.github/screenshot-drivers-tool.png)
+![Token Lens Drivers — by model](.github/screenshot-drivers-model.png)
+
+### Detail
+
+Drill into any session for token timeline, context pressure, per-turn tool usage, and the first user prompt.
+
+![Token Lens Session Detail](.github/screenshot-session-detail.png)
 
 ## CLI
 

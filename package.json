@@ -49,7 +49,7 @@
     "analyze:compact": "bun run src/analyze.ts --compact",
     "prices:fetch": "bun run scripts/fetch-prices.ts",
     "prices:sync": "bun run scripts/fetch-prices.ts --apply",
-    "dev": "bun run src/cli.ts serve"
+    "dev": "bun run scripts/dev.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

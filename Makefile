@@ -90,8 +90,8 @@ analyze-html: ## export token waste analysis to HTML file (--since DAYS, --sessi
 analyze-compact: ## run compact token waste analysis (for piping to claude)
 	$(BUN) run src/analyze.ts --compact
 
-dev: ## alias for `make serve`
-	$(CLI) serve
+dev: ## run API + Vite HMR dev server together (open http://localhost:5173)
+	$(BUN) run scripts/dev.ts
 
 test: ## run overview-cache self-check
 	$(BUN) run tests/overview-cache.test.ts

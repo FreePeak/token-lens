@@ -74,8 +74,8 @@ For iterating on the UI, `bun run dev` (or `make dev`) runs both processes in pa
 | | Feature | How it works |
 |---|---|---|
 | 📊 | **Local dashboard** | SQLite + Bun server, serves a React UI on `localhost:3847` |
-| 🔌 | **Multi-tool registry** | Cursor today, Claude Code and OpenCode stubs ready — add a tool in one file |
-| ⚡ | **Live capture** | Cursor hooks (`sessionStart`, `postToolUse`, `afterAgentResponse`) stream data in real time |
+| 🔌 | **Multi-tool registry** | Cursor + Claude Code + OpenCode — add a tool in one file |
+| ⚡ | **Live capture** | Cursor hooks + Claude Code `settings.json` hooks stream events in real time |
 | 📜 | **Historical backfill** | Scans `state.vscdb` for all past sessions — incremental or full |
 | 💰 | **Cost estimates** | Model pricing from `prices.json` (DeepSeek, Grok, Claude, GPT, Gemini, and more) |
 | 🧠 | **Prompt cache tracking** | Syncs cache read/write tokens from Cursor's dashboard API using your local login |
@@ -140,10 +140,26 @@ Run `bun run <script>` or `make <target>` for the equivalent Makefile targets.
 | Tool | Status | Backfill | Live hooks | Usage sync |
 |---|---|---|---|---|
 | **Cursor** | ✅ Complete | ✅ | ✅ | ✅ (dashboard API) |
-| **Claude Code** | 🟡 Stub | ❌ | ❌ | ❌ |
-| **OpenCode** | 🟡 Stub | ❌ | ❌ | ❌ |
+| **Claude Code** | ✅ Complete | ✅ | ✅ (settings.json) | — (tokens from JSONL) |
+| **OpenCode** | ✅ Complete | ✅ (sqlite) | 🟡 Use backfill | — (tokens from session row) |
 
 Adding a tool = create `src/tools/<id>.ts` implementing the `Tool` interface and register it. The CLI, dashboard, and cron pick it up automatically.
+
+### What we read from each tool
+
+- **Cursor** — SQLite `state.vscdb` (`bubbleId:*` KV rows + `composerHeaders`) + `~/.cursor/hooks.json` + the dashboard `/api/.../get-filtered-usage-events` API for cache tokens.
+- **Claude Code** — JSONL files at `~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl` (full message log with usage + tool_use blocks) + `~/.claude/settings.json` for live hooks.
+- **OpenCode** — `~/.local/share/opencode/opencode.db` (`session` + `message` + `part` tables; tokens & cost are pre-aggregated per session, `part.type='tool'` rows for tool calls).
+
+To scope the backfill to one tool:
+
+```bash
+bun run backfill --tool claude-code     # only Claude Code JSONL
+bun run backfill --tool opencode        # only OpenCode sqlite
+bun run backfill --tool cursor          # only Cursor state.vscdb
+```
+
+The dashboard's profile filter automatically picks up the new profiles (`.claude`, `.opencode`) alongside `.cursor` / `.cur`.
 
 ## Pricing data
 
@@ -206,8 +222,8 @@ Token Lens is designed around a hard privacy boundary:
 
 ## Roadmap
 
-- [ ] Claude Code backfill and hooks
-- [ ] OpenCode backfill and hooks
+- [ ] Claude Code live usage sync (no separate API; JSONL has everything)
+- [ ] OpenCode live hooks (no plugin protocol today; backfill covers it)
 - [ ] Export to shareable reports
 - [ ] Plugin system for custom cost models
 - [ ] Alerts (weekly budget report, unusual spend detection)

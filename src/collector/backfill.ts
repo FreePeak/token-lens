@@ -129,14 +129,49 @@ export type BackfillResult = {
   changed: number;
 };
 
+function resolveWorkspacePaths(cursor: Database): Map<string, string> {
+  const map = new Map<string, string>();
+  const row = cursor
+    .query(`SELECT value FROM ItemTable WHERE key = 'workspaceMetadata.entries'`)
+    .get() as { value: string } | null;
+  if (!row) return map;
+  try {
+    const data = JSON.parse(row.value) as { entries?: Array<{ workspaceId?: string; folderUri?: string; paths?: Array<{ uri?: { fsPath?: string; path?: string } }> }> };
+    for (const entry of data.entries ?? []) {
+      const id = entry.workspaceId;
+      if (!id) continue;
+      const path = entry.folderUri?.replace(/^file:\/\//, "") ?? entry.paths?.[0]?.uri?.fsPath ?? entry.paths?.[0]?.uri?.path;
+      if (path) map.set(id, path);
+    }
+  } catch { /* ignore parse errors */ }
+  return map;
+}
+
+/** Cursor-owned profile labels — only these rows are wiped on `--full`. */
+const CURSOR_PROFILES = [".cursor", ".cur"];
+
 function clearDerived(metricsDb: Database): void {
-  metricsDb.exec(`
-    DELETE FROM tool_calls;
-    DELETE FROM turns;
-    DELETE FROM token_snapshots WHERE bubble_id NOT GLOB 'dash:*';
-    DELETE FROM session_rollups;
-    DELETE FROM sessions;
-  `);
+  // ponytail: only wipe Cursor's slice — leave other tools' sessions in place
+  // so `backfill --tool cursor --full` doesn't nuke Claude Code/OpenCode rows.
+  const inList = CURSOR_PROFILES.map(() => "?").join(",");
+  metricsDb.transaction(() => {
+    metricsDb.run(
+      `DELETE FROM tool_calls WHERE conversation_id IN (SELECT conversation_id FROM sessions WHERE profile IN (${inList}))`,
+      CURSOR_PROFILES,
+    );
+    metricsDb.run(
+      `DELETE FROM turns WHERE conversation_id IN (SELECT conversation_id FROM sessions WHERE profile IN (${inList}))`,
+      CURSOR_PROFILES,
+    );
+    metricsDb.run(
+      `DELETE FROM token_snapshots
+       WHERE bubble_id NOT GLOB 'dash:*'
+         AND conversation_id IN (SELECT conversation_id FROM sessions WHERE profile IN (${inList}))`,
+      CURSOR_PROFILES,
+    );
+    metricsDb.run(`DELETE FROM session_rollups WHERE profile IN (${inList})`, CURSOR_PROFILES);
+    metricsDb.run(`DELETE FROM sessions WHERE profile IN (${inList})`, CURSOR_PROFILES);
+  })();
 }
 
 function loadComposers(cursor: Database): ComposerMeta[] {
@@ -462,6 +497,7 @@ export async function backfillFromCursor(
     if (clear) clearDerived(metricsDb);
 
     const composers = loadComposers(cursor);
+    const workspacePaths = resolveWorkspacePaths(cursor);
     const prior = resume ? knownBackfilledAt(metricsDb, profile) : new Map<string, number | null>();
 
     const changed: ComposerMeta[] = [];
@@ -498,6 +534,7 @@ export async function backfillFromCursor(
           conversation_id: c.composerId,
           title: c.title,
           workspace: c.workspaceId,
+          workspace_path: c.workspaceId ? (workspacePaths.get(c.workspaceId) ?? null) : null,
           model: c.model,
           mode: c.mode,
           started_at: c.createdAt,

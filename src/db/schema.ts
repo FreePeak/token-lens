@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   conversation_id TEXT PRIMARY KEY,
   title TEXT,
   workspace TEXT,
+  workspace_path TEXT,
   model TEXT,
   mode TEXT,
   started_at INTEGER,
@@ -40,7 +41,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   duration_ms INTEGER,
   source TEXT DEFAULT 'hook',
   first_prompt TEXT,
-  profile TEXT
+  profile TEXT,
+  last_backfilled_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS turns (
@@ -95,6 +97,7 @@ CREATE TABLE IF NOT EXISTS session_rollups (
   conversation_id TEXT PRIMARY KEY,
   title TEXT,
   workspace TEXT,
+  workspace_path TEXT,
   model TEXT,
   mode TEXT,
   started_at INTEGER,
@@ -175,6 +178,7 @@ function migrate(db: Database): void {
   // session_rollups.cache_reads / cache_writes = SUM of prompt-cache tokens (not event counts)
   add("cache_reads", "cache_reads INTEGER NOT NULL DEFAULT 0");
   add("cache_writes", "cache_writes INTEGER NOT NULL DEFAULT 0");
+  add("workspace_path", "workspace_path TEXT");
 }
 
 export function openMetricsDb(path = METRICS_DB_PATH): Database {

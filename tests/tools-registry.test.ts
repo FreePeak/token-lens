@@ -1,4 +1,4 @@
-// Self-check: tool registry has the expected tools, Cursor is supported, stubs throw clear errors.
+// Self-check: tool registry has the expected tools with working backfill+hooks.
 // Run with: bun run tests/tools-registry.test.ts
 import { strict as assert } from "assert";
 import { listTools, getTool } from "../src/tools/registry";
@@ -29,39 +29,48 @@ await run("cursor is the first supported tool", () => {
   assert.equal(cursor!.supportsUsageSync, true);
 });
 
-await run("claude-code is a stub that throws clearly", async () => {
+await run("claude-code is wired with backfill + installHooks", () => {
   const t = getTool("claude-code");
   assert.ok(t, "claude-code must be registered");
   assert.equal(t!.displayName, "Claude Code");
+  assert.equal(typeof t!.backfill, "function");
+  assert.equal(typeof t!.installHooks, "function");
+  // backfill on an empty DB does not throw
   const db = openMetricsDb(":memory:");
   try {
-    let caught: Error | null = null;
-    try {
-      await t!.backfill(db, { resume: true, rollup: true });
-    } catch (e) {
-      caught = e as Error;
-    }
-    assert.ok(caught, "must throw");
-    assert.match(caught!.message, /not implemented/);
+    // Don't actually run; just check shape — invoking it could touch the real
+    // ~/.claude directory which we don't want during tests.
+    assert.equal(typeof (t!.backfill as (...args: unknown[]) => unknown), "function");
   } finally {
     db.close();
   }
 });
 
-await run("opencode is a stub that throws clearly", async () => {
+await run("opencode is wired with backfill + installHooks", () => {
   const t = getTool("opencode");
   assert.ok(t, "opencode must be registered");
   assert.equal(t!.displayName, "OpenCode");
+  assert.equal(typeof t!.backfill, "function");
+  assert.equal(typeof t!.installHooks, "function");
+});
+
+await run("backfillClaudeCode with no install runs cleanly against in-memory DB", async () => {
+  const { backfillClaudeCode } = await import("../src/collector/claude-code");
   const db = openMetricsDb(":memory:");
   try {
-    let caught: Error | null = null;
-    try {
-      await t!.backfill(db, { resume: true, rollup: true });
-    } catch (e) {
-      caught = e as Error;
-    }
-    assert.ok(caught, "must throw");
-    assert.match(caught!.message, /not implemented/);
+    const r = await backfillClaudeCode(db, { claudeHome: "/nonexistent-empty-dir" });
+    assert.equal(r.sessions, 0);
+  } finally {
+    db.close();
+  }
+});
+
+await run("backfillOpenCode with no install runs cleanly against in-memory DB", async () => {
+  const { backfillOpenCode } = await import("../src/collector/opencode");
+  const db = openMetricsDb(":memory:");
+  try {
+    const r = await backfillOpenCode(db, { opencodeHome: "/nonexistent-empty-dir" });
+    assert.equal(r.sessions, 0);
   } finally {
     db.close();
   }
@@ -78,3 +87,4 @@ await run("unknown tool id returns undefined", () => {
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
+

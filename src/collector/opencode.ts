@@ -127,19 +127,24 @@ function firstUserPrompt(messages: MessageRow[]): string | null {
   return null;
 }
 
+type ToolPart = {
+  type?: string;
+  tool?: string;
+  state?: { status?: string; input?: unknown };
+};
+
 function toolNameForPart(data: string): { name: string; label: string } | null {
-  let o: { type?: string; tool?: string; state?: { status?: string; input?: unknown } } | null = null;
+  let o: ToolPart | null = null;
   try {
-    o = JSON.parse(data) as typeof o;
+    o = JSON.parse(data) as ToolPart;
   } catch {
     return null;
   }
   if (!o || o.type !== "tool" || typeof o.tool !== "string" || !o.tool) return null;
-  const status = o.state?.status;
   const input = o.state?.input;
   const params = typeof input === "string" ? input : input != null ? JSON.stringify(input) : null;
   const label = normalizeToolLabel(o.tool, { params });
-  return { name: o.tool, label, status: status ?? "completed" };
+  return { name: o.tool, label };
 }
 
 export type OpenCodeParseResult = { ok: boolean; sessions?: number; toolCalls?: number; error?: string };

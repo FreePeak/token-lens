@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { existsSync, readdirSync, readFileSync, statSync } from "fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import {
@@ -106,6 +106,11 @@ export function scanClaudeCodeSessions(projectsDir: string): ClaudeCodeSessionRe
       } catch {
         continue;
       }
+      // Skip symlinks: Claude Code mirrors worktree subdirs as top-level
+      // symlinks (e.g. `-Users-x-y-subagents-workflows-wf_x` → nested
+      // `wf_x`), and following them double-counts every JSONL. lstat
+      // distinguishes link vs dir/file so each real file is visited once.
+      if (lstatSync(p).isSymbolicLink()) continue;
       if (st.isDirectory()) {
         // encode the nested path segments so workspace_path stays correct
         walk(p, `${encodedDir}-${name}`);
@@ -129,6 +134,8 @@ export function scanClaudeCodeSessions(projectsDir: string): ClaudeCodeSessionRe
     const dir = join(projectsDir, encoded);
     let st;
     try {
+      // lstat: skip worktree-mirror symlinks (they point into the real tree)
+      if (lstatSync(dir).isSymbolicLink()) continue;
       st = statSync(dir);
     } catch {
       continue;
@@ -389,8 +396,12 @@ export async function backfillClaudeCode(
 ): Promise<ClaudeCodeBackfillResult> {
   const claudeHome = opts.claudeHome ?? DEFAULT_CLAUDE_CODE_HOME;
   const roots = discoverClaudeCodeRoots(claudeHome);
+  // Every root shares the same `projectsDir`; scan each unique projects dir
+  // once so a session is never parsed N times (N = project dirs under it).
   const refs: ClaudeCodeSessionRef[] = [];
-  for (const r of roots) refs.push(...scanClaudeCodeSessions(r.projectsDir));
+  for (const projectsDir of new Set(roots.map((r) => r.projectsDir))) {
+    refs.push(...scanClaudeCodeSessions(projectsDir));
+  }
 
   if (!refs.length) {
     return { sessions: 0, changed: 0, toolCalls: 0, bubbles: 0 };

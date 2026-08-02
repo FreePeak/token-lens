@@ -81,12 +81,14 @@ async function main(): Promise<void> {
   }
 
   if (cmd === "hook") {
+    const toolFlag = argStr(args, "--tool");
     const db = openMetricsDb();
     try {
       const payload = await readStdinJson();
-      // Hook is dispatched by the tool's own shell wrapper; this is the Cursor handler.
+      // Hook is dispatched by the tool's own shell wrapper; the dispatcher
+      // routes by --tool flag or by sniffing the payload shape.
       const { handleHook } = await import("./collector/hook");
-      handleHook(db, payload);
+      handleHook(db, payload, toolFlag);
       process.stdout.write("{}\n");
     } catch (err) {
       console.error("[token-lens hook]", err);

@@ -1,163 +1,37 @@
 import type { Database } from "bun:sqlite";
-import {
-  insertContextEvent,
-  insertToolCall,
-  recomputeRollup,
-  upsertSession,
-  upsertTokenSnapshot,
-  upsertTurn,
-} from "../db/queries";
-import { normalizeToolLabel } from "../shared/tools";
 import type { HookPayload } from "../shared/types";
+import {
+  handleClaudeCodeHook,
+  isClaudeCodePayload,
+} from "./hook-claude-code";
+import {
+  handleCursorHook,
+} from "./hook-cursor";
+import {
+  handleOpenCodeHook,
+  isOpenCodePayload,
+} from "./hook-opencode";
 
-/** Live hooks install under ~/.cursor — attribute to that profile. */
-const HOOK_PROFILE = ".cursor";
+export { handleCursorHook } from "./hook-cursor";
+export { handleClaudeCodeHook, isClaudeCodePayload } from "./hook-claude-code";
+export { handleOpenCodeHook, isOpenCodePayload } from "./hook-opencode";
 
-function convId(p: HookPayload): string | null {
-  return p.conversation_id ?? p.session_id ?? null;
+/**
+ * Top-level dispatcher. The CLI invokes this with an optional `--tool <id>`
+ * hint; if absent, the payload is sniffed to pick the right handler.
+ *
+ * Cursor is the default (preserves the bundled `~/.cursor/hooks/token-lens-hook.sh`).
+ */
+export function handleHook(db: Database, payload: HookPayload, tool?: string): void {
+  if (tool === "claude-code") return handleClaudeCodeHook(db, payload);
+  if (tool === "opencode") return handleOpenCodeHook(db, payload);
+  if (tool === "cursor") return handleCursorHook(db, payload);
+
+  if (isClaudeCodePayload(payload)) return handleClaudeCodeHook(db, payload);
+  if (isOpenCodePayload(payload)) return handleOpenCodeHook(db, payload);
+  // Default to Cursor for backward compat.
+  handleCursorHook(db, payload);
 }
 
-function workspace(p: HookPayload): string | null {
-  const roots = p.workspace_roots;
-  if (!roots?.length) return null;
-  return roots[0] ?? null;
-}
-
-function toolName(p: HookPayload): string {
-  let name = "unknown";
-  if (typeof p.tool_name === "string" && p.tool_name) name = p.tool_name;
-  else {
-    const nested = (p as { tool?: { name?: string } }).tool?.name;
-    if (nested) name = nested;
-  }
-  const input = p.tool_input;
-  const params =
-    typeof input === "string"
-      ? input
-      : input != null
-        ? JSON.stringify(input)
-        : null;
-  return normalizeToolLabel(name, { params });
-}
-
-function num(v: unknown): number {
-  return typeof v === "number" && Number.isFinite(v) ? v : 0;
-}
-
-export function handleHook(db: Database, payload: HookPayload): void {
-  const event = payload.hook_event_name ?? "unknown";
-  const id = convId(payload);
-  const now = Date.now();
-
-  // sessionStart may only have session_id
-  if (event === "sessionStart" && id) {
-    upsertSession(db, {
-      conversation_id: id,
-      workspace: workspace(payload),
-      model: payload.model_id ?? payload.model ?? null,
-      mode: payload.composer_mode ?? null,
-      started_at: now,
-      source: "hook",
-      profile: HOOK_PROFILE,
-    });
-    recomputeRollup(db, id);
-    return;
-  }
-
-  if (!id) return;
-
-  upsertSession(db, {
-    conversation_id: id,
-    workspace: workspace(payload),
-    model: payload.model_id ?? payload.model ?? null,
-    mode: payload.composer_mode ?? null,
-    source: "hook",
-    profile: HOOK_PROFILE,
-  });
-
-  switch (event) {
-    case "sessionEnd": {
-      upsertSession(db, {
-        conversation_id: id,
-        ended_at: now,
-        duration_ms: typeof payload.duration_ms === "number" ? payload.duration_ms : null,
-        source: "hook",
-        profile: HOOK_PROFILE,
-      });
-      break;
-    }
-    case "stop": {
-      const gen = payload.generation_id ?? `stop-${now}`;
-      upsertTurn(db, {
-        conversation_id: id,
-        generation_id: gen,
-        status: payload.status ?? "completed",
-        ended_at: now,
-      });
-      break;
-    }
-    case "postToolUse": {
-      insertToolCall(db, {
-        conversation_id: id,
-        generation_id: payload.generation_id ?? null,
-        tool_name: toolName(payload),
-        duration_ms: typeof payload.duration_ms === "number" ? payload.duration_ms : null,
-        success: true,
-        created_at: now,
-      });
-      break;
-    }
-    case "postToolUseFailure": {
-      insertToolCall(db, {
-        conversation_id: id,
-        generation_id: payload.generation_id ?? null,
-        tool_name: toolName(payload),
-        duration_ms: typeof payload.duration_ms === "number" ? payload.duration_ms : null,
-        success: false,
-        created_at: now,
-      });
-      break;
-    }
-    case "preCompact": {
-      insertContextEvent(db, {
-        conversation_id: id,
-        context_tokens: payload.context_tokens ?? null,
-        context_usage_percent: payload.context_usage_percent ?? null,
-        context_window_size: payload.context_window_size ?? null,
-        created_at: now,
-      });
-      break;
-    }
-    case "afterAgentResponse": {
-      const gen = payload.generation_id ?? `aar-${now}`;
-      upsertTurn(db, {
-        conversation_id: id,
-        generation_id: gen,
-        status: "responded",
-        ended_at: now,
-      });
-      const input = num(payload.input_tokens);
-      const output = num(payload.output_tokens);
-      const cacheRead = num(payload.cache_read_tokens);
-      const cacheWrite = num(payload.cache_write_tokens);
-      if (input || output || cacheRead || cacheWrite) {
-        upsertTokenSnapshot(db, {
-          conversation_id: id,
-          bubble_id: `hook:${gen}`,
-          input_tokens: input,
-          output_tokens: output,
-          cache_read_tokens: cacheRead,
-          cache_write_tokens: cacheWrite,
-          model: payload.model_id ?? payload.model ?? null,
-          created_at: now,
-          estimated: false,
-        });
-      }
-      break;
-    }
-    default:
-      break;
-  }
-
-  recomputeRollup(db, id);
-}
+// Re-export the payload type for legacy imports.
+export type { HookPayload };

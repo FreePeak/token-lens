@@ -3,6 +3,7 @@ export type SessionRollup = {
   conversation_id: string;
   title: string | null;
   workspace: string | null;
+  workspace_path: string | null;
   model: string | null;
   mode: string | null;
   started_at: number | null;

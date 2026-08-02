@@ -133,6 +133,13 @@ Usage:
   token-lens analyze:compact
 ```
 
+Examples:
+
+```bash
+token-lens export --profile .cursor sessions > cursor.csv
+token-lens export --list-profiles
+```
+
 Run `bun run <script>` or `make <target>` for the equivalent Makefile targets.
 
 ## Supported tools

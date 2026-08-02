@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 import { existsSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
 import { homedir } from "os";
 import { openMetricsDb, METRICS_DB_PATH, METRICS_DIR } from "./db/schema";
-import { recomputeAllRollups } from "./db/queries";
+import { listProfiles, recomputeAllRollups } from "./db/queries";
 import { invalidateOverviewCache } from "./db/overview-cache";
 import { startServer } from "./server/api";
 import { listTools, getTool } from "./tools/registry";
@@ -35,7 +35,8 @@ Usage:
   token-lens serve [--port N] [--no-backfill]  API + dashboard; incremental backfill on start + every 15m
   token-lens install-hooks [--tool ID]    Wire tool hooks at the tool's hooks config
   token-lens hook                        (internal) read hook JSON from stdin
-  token-lens export [--table sessions|session_rollups]  Export table to CSV (stdout)
+  token-lens export [sessions|session_rollups] [--profile NAME] [--list-profiles|-L]
+                                            Export table to CSV (stdout)
   token-lens cron install                Install 15-min launchd backfill cron (optional; serve already schedules)
   token-lens cron uninstall              Remove launchd plist
   token-lens cron status                 Check if cron is loaded
@@ -57,6 +58,53 @@ function argStr(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
   if (i < 0) return undefined;
   return args[i + 1];
+}
+
+type ExportTable = "sessions" | "session_rollups";
+
+export function parseExportArgs(args: string[]): {
+  table: ExportTable;
+  profile?: string;
+  listProfiles: boolean;
+} {
+  let table: ExportTable = "sessions";
+  let profile: string | undefined;
+  let listProfiles = false;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--profile") {
+      profile = args[i + 1];
+      i++;
+    } else if (arg === "--list-profiles" || arg === "-L") {
+      listProfiles = true;
+    } else if (arg === "sessions" || arg === "session_rollups") {
+      table = arg;
+    }
+  }
+  return { table, profile, listProfiles };
+}
+
+export function exportTableCsv(
+  db: ReturnType<typeof openMetricsDb>,
+  table: ExportTable,
+  profile?: string,
+): string {
+  const sql = `SELECT * FROM ${table}${profile ? " WHERE profile = ?" : ""}`;
+  const rows = (profile ? db.query(sql).all(profile) : db.query(sql).all()) as Record<string, unknown>[];
+  if (!rows.length) return "\n";
+  const headers = Object.keys(rows[0]!);
+  const escape = (value: unknown): string => {
+    if (value == null) return "";
+    const text = String(value);
+    if (text.includes(",") || text.includes('"') || text.includes("\n")) {
+      return `"${text.replace(/"/g, '""')}"`;
+    }
+    return text;
+  };
+  return `${[
+    headers.join(","),
+    ...rows.map((row) => headers.map((header) => escape(row[header])).join(",")),
+  ].join("\n")}\n`;
 }
 
 async function main(): Promise<void> {
@@ -179,27 +227,15 @@ async function main(): Promise<void> {
   }
 
   if (cmd === "export") {
-    const table = args[1] === "session_rollups" ? "session_rollups" : "sessions";
+    const options = parseExportArgs(args.slice(1));
     const db = openMetricsDb();
     try {
-      const rows = db.query(`SELECT * FROM ${table}`).all() as Record<string, unknown>[];
-      if (!rows.length) {
-        console.log("");
-        process.exit(0);
+      if (options.listProfiles) {
+        const profiles = listProfiles(db);
+        if (profiles.length) process.stdout.write(`${profiles.join("\n")}\n`);
+        return;
       }
-      const headers = Object.keys(rows[0]!);
-      const escape = (v: unknown): string => {
-        if (v == null) return "";
-        const s = String(v);
-        if (s.includes(",") || s.includes('"') || s.includes("\n")) {
-          return `"${s.replace(/"/g, '""')}"`;
-        }
-        return s;
-      };
-      console.log(headers.join(","));
-      for (const row of rows) {
-        console.log(headers.map((h) => escape(row[h])).join(","));
-      }
+      process.stdout.write(exportTableCsv(db, options.table, options.profile));
     } finally {
       db.close();
     }

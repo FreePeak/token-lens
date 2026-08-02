@@ -288,9 +288,11 @@ function processBubble(
   }
 
   if (input > 0 || output > 0 || contextTokens != null) {
+    const snapshotGen = (typeof data.requestId === "string" && data.requestId) || bubbleId;
     upsertTokenSnapshot(metricsDb, {
       conversation_id: conversationId,
       bubble_id: bubbleId,
+      generation_id: snapshotGen,
       input_tokens: input,
       output_tokens: output,
       context_tokens: contextTokens,

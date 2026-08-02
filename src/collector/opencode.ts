@@ -210,9 +210,19 @@ export async function parseOpenCodeDb(metricsDb: Database, root: OpenCodeRoot): 
 
         // One summary token snapshot per session. OpenCode aggregates
         // tokens at the session level, so we don't have per-message data.
+        // Link to the first assistant message id (or the session id itself
+        // when no messages) so it surfaces on the first turn.
+        const summaryGen = messages.find((m) => {
+          try {
+            return JSON.parse(m.data)?.role !== "user";
+          } catch {
+            return true;
+          }
+        })?.id ?? sess.id;
         upsertTokenSnapshot(metricsDb, {
           conversation_id: sess.id,
           bubble_id: `oc:${sess.time_created}:summary`,
+          generation_id: summaryGen,
           input_tokens: sess.tokens_input,
           output_tokens: sess.tokens_output + sess.tokens_reasoning,
           cache_read_tokens: sess.tokens_cache_read,

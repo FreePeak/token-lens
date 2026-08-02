@@ -305,6 +305,7 @@ export function parseClaudeCodeSessionFile(
         upsertTokenSnapshot(metricsDb, {
           conversation_id: id,
           bubble_id: `cc:${snapGen}`,
+          generation_id: snapGen,
           input_tokens: input,
           output_tokens: output,
           cache_read_tokens: cacheRead,

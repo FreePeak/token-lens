@@ -3,6 +3,7 @@ import {
   insertContextEvent,
   insertToolCall,
   recomputeRollup,
+  recordTurn,
   upsertSession,
   upsertTokenSnapshot,
   upsertTurn,
@@ -144,6 +145,7 @@ export function handleCursorHook(db: Database, payload: HookPayload): void {
       const output = num(payload.output_tokens);
       const cacheRead = num(payload.cache_read_tokens);
       const cacheWrite = num(payload.cache_write_tokens);
+      const model = payload.model_id ?? payload.model ?? null;
       if (input || output || cacheRead || cacheWrite) {
         upsertTokenSnapshot(db, {
           conversation_id: id,
@@ -152,9 +154,16 @@ export function handleCursorHook(db: Database, payload: HookPayload): void {
           output_tokens: output,
           cache_read_tokens: cacheRead,
           cache_write_tokens: cacheWrite,
-          model: payload.model_id ?? payload.model ?? null,
+          model,
           created_at: now,
           estimated: false,
+        });
+        recordTurn(db, {
+          conversation_id: id,
+          generation_id: gen,
+          tokens: { input, output, cache_read: cacheRead, cache_write: cacheWrite },
+          model,
+          at: now,
         });
       }
       break;

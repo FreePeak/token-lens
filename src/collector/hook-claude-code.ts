@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import {
   insertToolCall,
   recomputeRollup,
+  recordTurn,
   upsertSession,
   upsertTokenSnapshot,
   upsertTurn,
@@ -168,6 +169,7 @@ export function handleClaudeCodeHook(db: Database, payload: HookPayload): void {
         const output = num(usage.output_tokens);
         const cr = num(usage.cache_read_input_tokens);
         const cw = num(usage.cache_creation_input_tokens);
+        const model = payload.model_id ?? payload.model ?? null;
         if (input || output || cr || cw) {
           upsertTokenSnapshot(db, {
             conversation_id: id,
@@ -176,9 +178,16 @@ export function handleClaudeCodeHook(db: Database, payload: HookPayload): void {
             output_tokens: output,
             cache_read_tokens: cr,
             cache_write_tokens: cw,
-            model: payload.model_id ?? payload.model ?? null,
+            model,
             created_at: now,
             estimated: false,
+          });
+          recordTurn(db, {
+            conversation_id: id,
+            generation_id: gen,
+            tokens: { input, output, cache_read: cr, cache_write: cw },
+            model,
+            at: now,
           });
         }
       }

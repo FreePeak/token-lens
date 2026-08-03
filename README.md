@@ -56,11 +56,11 @@ cd dashboard && bun run build && cd ..
 bun run serve
 ```
 
-Open [http://localhost:3847](http://localhost:3847). That's it.
+Open [http://localhost:5173](http://localhost:5173). That's it.
 
-#### Dev mode (HMR + API auto-restart)
+#### Dev mode (API auto-restart)
 
-For iterating on the UI, `bun run dev` (or `make dev`) runs both processes in parallel: the API with `bun --watch` and Vite with HMR. Open `http://localhost:5173` — Vite proxies `/api` to the API on `:3847`. Edits under `dashboard/src/` hot-reload; edits under `src/` restart the API.
+For iterating on the API, `bun run dev` (or `make dev`) runs the API with `bun --watch` on `http://localhost:5173`, serving both the API and the built dashboard from `dashboard/dist` on a single port. Edits under `src/` restart the API. For UI work, run `cd dashboard && bun run dev` to get Vite HMR (it proxies `/api` to `:5173`), or rebuild with `make dashboard-build` after changes.
 
 ### What you'll see right away
 
@@ -73,7 +73,7 @@ For iterating on the UI, `bun run dev` (or `make dev`) runs both processes in pa
 
 | | Feature | How it works |
 |---|---|---|
-| 📊 | **Local dashboard** | SQLite + Bun server, serves a React UI on `localhost:3847` |
+| 📊 | **Local dashboard** | SQLite + Bun server, serves a React UI on `localhost:5173` |
 | 🔌 | **Multi-tool registry** | Cursor + Claude Code + OpenCode — add a tool in one file |
 | ⚡ | **Live capture** | Cursor hooks + Claude Code `settings.json` hooks stream events in real time |
 | 📜 | **Historical backfill** | Scans `state.vscdb` for all past sessions — incremental or full |
@@ -238,7 +238,7 @@ Token Lens is designed around a hard privacy boundary:
 - **Optional `sync-usage`** calls cursor.com using **your local session cookie** — only to fetch cache-token data that isn't stored locally
 - **Stores only aggregates + tool names** in `~/.token-lens/metrics.db`
 - **No telemetry, no analytics, no tracking** — the project itself has zero analytics code
-- **No accounts, no sign-up, no cloud** — everything runs on `localhost:3847`
+- **No accounts, no sign-up, no cloud** — everything runs on `localhost:5173`
 
 ## Roadmap
 

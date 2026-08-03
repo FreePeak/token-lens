@@ -30,5 +30,5 @@ Token Lens needs your Cursor dashboard session token. This is read automatically
 **Hooks not working**
 Run `bun run install-hooks`, then restart Cursor. Check that `~/.cursor/hooks.json` contains the token-lens entry.
 
-**Port 3847 already in use**
-Use `bun run serve --port 3848` to pick a different port.
+**Port 5173 already in use**
+Use `bun run serve --port 5180` to pick a different port.

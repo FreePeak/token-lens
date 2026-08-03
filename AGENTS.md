@@ -8,8 +8,8 @@ Runtime: **Bun** (installed at `~/.bun/bin`). The startup update script runs `bu
 
 ### Run
 
-- Dev (recommended): `bun run dev` runs the API (`http://localhost:3847`) with `--watch` and Vite HMR (`http://localhost:5173`) together. Open `:5173` — Vite proxies `/api` to the API. Edits in `dashboard/src/` hot-reload; edits in `src/` restart the API.
-- Prod-style: `bun run serve` serves the built UI on `:3847`, but you must build first with `cd dashboard && bun run build` (writes `dashboard/dist/`), otherwise the dashboard route is empty.
+- Dev (recommended): `bun run dev` (or `make dev`) runs the API with `--watch` on `http://localhost:5173`, serving both the API and the built dashboard from `dashboard/dist` on a single port. Edits in `src/` restart the API; for UI changes run `cd dashboard && bun run dev` separately to get Vite HMR, or rebuild with `make dashboard-build`.
+- Prod-style: `bun run serve` serves the built UI on `:5173`, but you must build first with `cd dashboard && bun run build` (writes `dashboard/dist/`), otherwise the dashboard route is empty.
 
 ### Getting data without Cursor (for testing UI/pipeline)
 

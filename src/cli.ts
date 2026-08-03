@@ -263,7 +263,7 @@ async function main(): Promise<void> {
 
   if (cmd === "serve") {
     const portIdx = args.indexOf("--port");
-    const port = portIdx >= 0 ? Number(args[portIdx + 1]) : 3847;
+    const port = portIdx >= 0 ? Number(args[portIdx + 1]) : 5173;
     const noBackfill = args.includes("--no-backfill");
     const db = openMetricsDb();
     const dist = join(ROOT, "dashboard", "dist");

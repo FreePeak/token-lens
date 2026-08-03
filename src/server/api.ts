@@ -49,7 +49,7 @@ export function startServer(
   db: Database,
   opts: { port?: number; staticDir?: string } = {},
 ): { port: number; stop: () => void } {
-  const port = opts.port ?? 3847;
+  const port = opts.port ?? 5173;
   const staticDir = opts.staticDir;
 
   const server = Bun.serve({

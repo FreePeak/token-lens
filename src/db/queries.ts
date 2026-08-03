@@ -2,6 +2,9 @@ import type { Database } from "bun:sqlite";
 import { estimateCostUsd } from "../shared/prices";
 import { isLeanKgTool, isReadTool, isSearchTool } from "../shared/tools";
 import type { DriverRow, OverviewStats, SessionDetail, SessionRollup } from "../shared/types";
+import { clearRootCauseEvents } from "./root-causes";
+import { detectContextGrowth } from "../detector/context-growth";
+import { detectPricingUncertainty } from "../detector/pricing-uncertainty";
 
 async function withWriteRetry<T>(fn: () => T, attempts = 5): Promise<T> {
   for (let i = 0; i < attempts; i++) {
@@ -95,6 +98,132 @@ export function upsertTurn(
   );
 }
 
+/**
+ * Record or update a single turn with its full cost picture (Release 1).
+ * Use this from collectors when a generation_id arrives with usage data.
+ * Existing non-zero columns are preserved (we never downgrade exact → 0).
+ */
+export function recordTurn(
+  db: Database,
+  row: {
+    conversation_id: string;
+    generation_id: string;
+    tokens: { input: number; output: number; cache_read?: number; cache_write?: number };
+    model?: string | null;
+    estimated?: boolean;
+    prompt?: string | null;
+    at?: number;
+  },
+): void {
+  const input = row.tokens.input | 0;
+  const output = row.tokens.output | 0;
+  const cacheRead = row.tokens.cache_read ?? 0;
+  const cacheWrite = row.tokens.cache_write ?? 0;
+  const total = input + output + cacheRead + cacheWrite;
+  const cost = estimateCostUsd(row.model ?? null, input, output, cacheRead, cacheWrite);
+  const at = row.at ?? Date.now();
+  db.run(
+    `INSERT INTO turns
+       (conversation_id, generation_id, status, started_at, ended_at,
+        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+        total_tokens, total_cost_usd, model, estimated, prompt)
+     VALUES ($c, $g, 'responded', $at, $at,
+        $in, $out, $cr, $cw, $tot, $cost, $model, $est, $prompt)
+     ON CONFLICT(conversation_id, generation_id) DO UPDATE SET
+       input_tokens     = MAX(turns.input_tokens, excluded.input_tokens),
+       output_tokens    = MAX(turns.output_tokens, excluded.output_tokens),
+       cache_read_tokens = MAX(turns.cache_read_tokens, excluded.cache_read_tokens),
+       cache_write_tokens = MAX(turns.cache_write_tokens, excluded.cache_write_tokens),
+       total_tokens     = MAX(turns.total_tokens, excluded.total_tokens),
+       total_cost_usd   = MAX(turns.total_cost_usd, excluded.total_cost_usd),
+       model            = COALESCE(excluded.model, turns.model),
+       estimated        = CASE WHEN turns.estimated = 1 THEN 1 ELSE excluded.estimated END,
+       prompt           = COALESCE(excluded.prompt, turns.prompt),
+       ended_at         = COALESCE(turns.ended_at, excluded.ended_at)`,
+    {
+      $c: row.conversation_id,
+      $g: row.generation_id,
+      $at: at,
+      $in: input,
+      $out: output,
+      $cr: cacheRead,
+      $cw: cacheWrite,
+      $tot: total,
+      $cost: cost,
+      $model: row.model ?? null,
+      $est: row.estimated ? 1 : 0,
+      $prompt: row.prompt ?? null,
+    },
+  );
+}
+
+/**
+ * Recompute one turn's cost columns from its `token_snapshots` rows.
+ * Matches by `token_snapshots.generation_id = ?` when set, falling back
+ * to `bubble_id LIKE '<gen>%'` for legacy hook snapshots (hook:gen, cc-hook:gen).
+ * Picks the snapshot's model as the pricing source (per doc: per-bubble model wins).
+ * Safe to call repeatedly (idempotent).
+ */
+export function recomputeTurn(db: Database, conversationId: string, generationId: string): void {
+  const row = db
+    .query(
+      `SELECT COALESCE(SUM(input_tokens), 0)         AS input_tokens,
+              COALESCE(SUM(output_tokens), 0)        AS output_tokens,
+              COALESCE(SUM(cache_read_tokens), 0)    AS cache_read_tokens,
+              COALESCE(SUM(cache_write_tokens), 0)   AS cache_write_tokens,
+              MAX(estimated)                         AS any_est,
+              MAX(COALESCE(model, ''))                AS model
+         FROM token_snapshots
+        WHERE conversation_id = ?
+          AND (generation_id = ? OR bubble_id LIKE ?)`,
+    )
+    .get(conversationId, generationId, `${generationId}%`) as {
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_tokens: number;
+      cache_write_tokens: number;
+      any_est: number | null;
+      model: string;
+    } | null;
+  if (!row) return;
+  const input = row.input_tokens | 0;
+  const output = row.output_tokens | 0;
+  const cacheRead = row.cache_read_tokens | 0;
+  const cacheWrite = row.cache_write_tokens | 0;
+  const total = input + output + cacheRead + cacheWrite;
+  const cost = estimateCostUsd(
+    row.model || null,
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+  );
+  db.run(
+    `UPDATE turns SET
+        input_tokens      = $in,
+        output_tokens     = $out,
+        cache_read_tokens = $cr,
+        cache_write_tokens = $cw,
+        total_tokens      = $tot,
+        total_cost_usd    = $cost,
+        estimated         = CASE WHEN $est = 1 THEN 1 ELSE estimated END,
+        model             = COALESCE(NULLIF($model, ''), model)
+      WHERE conversation_id = $c AND generation_id = $g`,
+    {
+      $c: conversationId,
+      $g: generationId,
+      $in: input,
+      $out: output,
+      $cr: cacheRead,
+      $cw: cacheWrite,
+      $tot: total,
+      $cost: cost,
+      $est: row.any_est ? 1 : 0,
+      $model: row.model ?? "",
+    },
+  );
+}
+
 export function insertToolCall(
   db: Database,
   row: {
@@ -134,14 +263,16 @@ export function upsertTokenSnapshot(
     created_at?: number | null;
     estimated?: boolean;
     prompt?: string | null;
+    generation_id?: string | null;
   },
 ): void {
   db.run(
     `INSERT INTO token_snapshots (
-       conversation_id, bubble_id, input_tokens, output_tokens,
+       conversation_id, bubble_id, generation_id, input_tokens, output_tokens,
        cache_read_tokens, cache_write_tokens, context_tokens, model, created_at, estimated, prompt
-     ) VALUES ($c, $b, $in, $out, $cr, $cw, $ctx, $model, $at, $est, $prompt)
+     ) VALUES ($c, $b, $gen, $in, $out, $cr, $cw, $ctx, $model, $at, $est, $prompt)
      ON CONFLICT(conversation_id, bubble_id) DO UPDATE SET
+       generation_id = COALESCE(excluded.generation_id, token_snapshots.generation_id),
        input_tokens = CASE
          WHEN excluded.estimated = 0 THEN MAX(excluded.input_tokens, token_snapshots.input_tokens)
          WHEN token_snapshots.estimated = 0 THEN token_snapshots.input_tokens
@@ -165,6 +296,7 @@ export function upsertTokenSnapshot(
     {
       $c: row.conversation_id,
       $b: row.bubble_id,
+      $gen: row.generation_id ?? null,
       $in: row.input_tokens,
       $out: row.output_tokens,
       $cr: row.cache_read_tokens ?? 0,
@@ -201,7 +333,53 @@ export function insertContextEvent(
   );
 }
 
+/** Returns `[{name, count, failures}]` for the tools used during a single turn. */
+export function countToolCallsForTurn(
+  db: Database,
+  conversationId: string,
+  generationId: string,
+): Array<{ tool_name: string; count: number; failures: number }> {
+  return db
+    .query(
+      `SELECT tool_name,
+              COUNT(*) AS count,
+              SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failures
+         FROM tool_calls
+        WHERE conversation_id = ? AND generation_id = ?
+        GROUP BY tool_name
+        ORDER BY count DESC`,
+    )
+    .all(conversationId, generationId) as Array<{ tool_name: string; count: number; failures: number }>;
+}
+
+/** Pick the highest-confidence root-cause category attached to a turn (or null). */
+export function topRootCauseForTurn(
+  db: Database,
+  conversationId: string,
+  generationId: string,
+): { category: string; confidence: number } | null {
+  return (
+    (db
+      .query(
+        `SELECT category, confidence FROM root_cause_events
+          WHERE conversation_id = ? AND generation_id = ?
+          ORDER BY confidence DESC LIMIT 1`,
+      )
+      .get(conversationId, generationId) as { category: string; confidence: number } | null) ?? null
+  );
+}
+
+/** Top-level entry point: run every registered detector for a session. */
+function runDetectors(db: Database, conversationId: string): void {
+  // Order matters when detectors reuse evidence; currently independent.
+  detectContextGrowth(db, conversationId);
+  detectPricingUncertainty(db, conversationId);
+}
+
 export function recomputeRollup(db: Database, conversationId: string): void {
+  // Wipe stale root-cause events for this session so detectors don't double-fire.
+  clearRootCauseEvents(db, conversationId);
+  runDetectors(db, conversationId);
   const session = db
     .query(`SELECT * FROM sessions WHERE conversation_id = ?`)
     .get(conversationId) as Record<string, unknown> | null;
@@ -438,8 +616,12 @@ export function getSessionDetail(db: Database, conversationId: string): SessionD
 
   const turns = db
     .query(
-      `SELECT generation_id, status, started_at, ended_at FROM turns
-       WHERE conversation_id = ? ORDER BY COALESCE(ended_at, started_at, 0)`,
+      `SELECT generation_id, status, started_at, ended_at,
+              input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+              total_tokens, total_cost_usd, model, estimated, prompt
+         FROM turns
+        WHERE conversation_id = ?
+        ORDER BY COALESCE(ended_at, started_at, 0)`,
     )
     .all(conversationId) as SessionDetail["turns"];
 
@@ -470,7 +652,16 @@ export function getSessionDetail(db: Database, conversationId: string): SessionD
     )
     .all(conversationId) as SessionDetail["context_events"];
 
-  return { ...rollup, turns, tools, token_snapshots, context_events };
+  const root_causes = db
+    .query(
+      `SELECT id, conversation_id, generation_id, category, confidence,
+              observed_cost_usd, baseline_cost_usd, evidence_json, recommendation, created_at
+         FROM root_cause_events WHERE conversation_id = ?
+        ORDER BY confidence DESC, observed_cost_usd DESC NULLS LAST`,
+    )
+    .all(conversationId) as SessionDetail["root_causes"];
+
+  return { ...rollup, turns, tools, token_snapshots, context_events, root_causes };
 }
 
 export function getDrivers(

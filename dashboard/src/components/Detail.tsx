@@ -14,6 +14,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ArrowLeft } from "lucide-react";
+import { TurnTable } from "./TurnTable";
+import { ContextEventsTimeline } from "./ContextEventsTimeline";
 
 export function Detail({
   id,
@@ -161,30 +163,11 @@ export function Detail({
           <CardTitle className="text-base font-semibold">Turns ({d.turns.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Generation</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right font-mono">Ended</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {d.turns.map((t) => (
-                <TableRow key={t.generation_id}>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {t.generation_id.slice(0, 12)}...
-                  </TableCell>
-                  <TableCell>{t.status ?? "—"}</TableCell>
-                  <TableCell className="text-right font-mono text-xs tabular-nums">
-                    {t.ended_at ? fmtDate(t.ended_at) : "—"}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <TurnTable detail={d} />
         </CardContent>
       </Card>
+
+      <ContextEventsTimeline detail={d} />
     </div>
   );
 }

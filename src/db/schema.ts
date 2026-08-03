@@ -70,6 +70,7 @@ CREATE INDEX IF NOT EXISTS idx_tool_calls_name ON tool_calls(tool_name);
 CREATE TABLE IF NOT EXISTS token_snapshots (
   conversation_id TEXT NOT NULL,
   bubble_id TEXT NOT NULL,
+  generation_id TEXT,
   input_tokens INTEGER NOT NULL DEFAULT 0,
   output_tokens INTEGER NOT NULL DEFAULT 0,
   cache_read_tokens INTEGER NOT NULL DEFAULT 0,
@@ -127,6 +128,22 @@ CREATE TABLE IF NOT EXISTS overview_cache (
   computed_at INTEGER NOT NULL,
   source_session_count INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS root_cause_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conversation_id TEXT NOT NULL,
+  generation_id TEXT,
+  category TEXT NOT NULL,
+  confidence REAL NOT NULL,
+  observed_cost_usd REAL,
+  baseline_cost_usd REAL,
+  evidence_json TEXT NOT NULL,
+  recommendation TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_root_cause_conv ON root_cause_events(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_root_cause_category ON root_cause_events(category);
 `;
 
 function migrate(db: Database): void {
@@ -160,6 +177,12 @@ function migrate(db: Database): void {
   if (!tcols.has("prompt")) {
     db.exec(`ALTER TABLE token_snapshots ADD COLUMN prompt TEXT`);
   }
+  if (!tcols.has("generation_id")) {
+    db.exec(`ALTER TABLE token_snapshots ADD COLUMN generation_id TEXT`);
+  }
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_token_snapshots_gen ON token_snapshots(conversation_id, generation_id)`,
+  );
 
   const scols = new Set(
     (db.query(`PRAGMA table_info(sessions)`).all() as Array<{ name: string }>).map((c) => c.name),
@@ -179,6 +202,23 @@ function migrate(db: Database): void {
   add("cache_reads", "cache_reads INTEGER NOT NULL DEFAULT 0");
   add("cache_writes", "cache_writes INTEGER NOT NULL DEFAULT 0");
   add("workspace_path", "workspace_path TEXT");
+
+  // turns cost columns (Release 1)
+  const turnColsSet = new Set(
+    (db.query(`PRAGMA table_info(turns)`).all() as Array<{ name: string }>).map((c) => c.name),
+  );
+  const addTurnCol = (name: string, ddl: string) => {
+    if (!turnColsSet.has(name)) db.exec(`ALTER TABLE turns ADD COLUMN ${ddl}`);
+  };
+  addTurnCol("input_tokens", "input_tokens INTEGER NOT NULL DEFAULT 0");
+  addTurnCol("output_tokens", "output_tokens INTEGER NOT NULL DEFAULT 0");
+  addTurnCol("cache_read_tokens", "cache_read_tokens INTEGER NOT NULL DEFAULT 0");
+  addTurnCol("cache_write_tokens", "cache_write_tokens INTEGER NOT NULL DEFAULT 0");
+  addTurnCol("total_tokens", "total_tokens INTEGER NOT NULL DEFAULT 0");
+  addTurnCol("total_cost_usd", "total_cost_usd REAL NOT NULL DEFAULT 0");
+  addTurnCol("model", "model TEXT");
+  addTurnCol("estimated", "estimated INTEGER NOT NULL DEFAULT 0");
+  addTurnCol("prompt", "prompt TEXT");
 }
 
 export function openMetricsDb(path = METRICS_DB_PATH): Database {

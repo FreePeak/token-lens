@@ -55,6 +55,15 @@ export type SessionDetail = SessionRollup & {
     status: string | null;
     started_at: number | null;
     ended_at: number | null;
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_tokens?: number;
+    cache_write_tokens?: number;
+    total_tokens?: number;
+    total_cost_usd?: number;
+    model?: string | null;
+    estimated?: number;
+    prompt?: string | null;
   }>;
   tools: Array<{
     tool_name: string;
@@ -79,6 +88,33 @@ export type SessionDetail = SessionRollup & {
     context_window_size: number | null;
     created_at: number | null;
   }>;
+  root_causes?: RootCauseEvent[];
+};
+
+/** Controlled list of root-cause categories. */
+export type RootCauseCategory =
+  | "context_accumulation"
+  | "tool_output_amplification"
+  | "search_thrashing"
+  | "retry_amplification"
+  | "duplicate_generation"
+  | "model_selection"
+  | "cache_failure"
+  | "reasoning_surprise"
+  | "pricing_uncertainty"
+  | "data_quality";
+
+export type RootCauseEvent = {
+  id: number;
+  conversation_id: string;
+  generation_id: string | null;
+  category: RootCauseCategory;
+  confidence: number; // 0..1
+  observed_cost_usd: number | null;
+  baseline_cost_usd: number | null;
+  evidence_json: string;
+  recommendation: string;
+  created_at: number;
 };
 
 export type HookPayload = {

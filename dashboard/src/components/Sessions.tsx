@@ -111,8 +111,6 @@ export function Sessions({
                 <TableHead className="text-right font-mono">Tools</TableHead>
                 <TableHead className="text-right font-mono">Search</TableHead>
                 <TableHead className="text-right font-mono">Reads</TableHead>
-                <TableHead className="text-right font-mono">Cache R</TableHead>
-                <TableHead className="text-right font-mono">Cache W</TableHead>
                 <TableHead className="text-right font-mono">In</TableHead>
                 <TableHead className="text-right font-mono">Out</TableHead>
                 <SortHead id="cost" label="Cost" />
@@ -144,8 +142,6 @@ export function Sessions({
                   <TableCell className="text-right font-mono tabular-nums">{fmtNum(r.tool_calls)}</TableCell>
                   <TableCell className="text-right font-mono tabular-nums">{fmtNum(r.search_calls ?? 0)}</TableCell>
                   <TableCell className="text-right font-mono tabular-nums">{fmtNum(r.file_reads)}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{fmtNum(r.cache_reads ?? 0)}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{fmtNum(r.cache_writes ?? 0)}</TableCell>
                   <TableCell className="text-right font-mono tabular-nums">
                     {r.tokens_estimated ? "~" : ""}
                     {fmtNum(r.input_tokens)}

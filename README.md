@@ -113,6 +113,19 @@ Drill into any session for token timeline, context pressure, per-turn tool usage
 
 ![Token Lens Session Detail](.github/screenshot-session-detail.png)
 
+### URL routing
+
+The dashboard uses client-side routing, so the URL reflects what you're looking at and is shareable / reloadable:
+
+| Path | View |
+|---|---|
+| `/` | Overview |
+| `/sessions` | Sessions list |
+| `/sessions/:id` | Detail for a specific session |
+| `/drivers` | Drivers |
+
+Filter state is stored in the query string: `?days=7` or `?days=all`, and `?profile=<name>`. Example: `http://localhost:5173/sessions/abc?days=7&profile=.claude` — bookmark or share it; reload restores the exact view.
+
 ## CLI
 
 ```text

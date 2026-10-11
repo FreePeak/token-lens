@@ -74,8 +74,11 @@ truncated`.
   rendering a real thread.
 - **Session logs are replaced on re-import.** A resumed session log grows, so a
   re-backfill deletes the session's `tool_calls` rows before re-inserting
-  (`DELETE FROM tool_calls WHERE conversation_id = ?`) instead of accumulating
-  duplicates. Sessions still being written (mtime < 60 s) are skipped.
+  (`DELETE FROM tool_calls WHERE conversation_id = ?`, inside the same
+  transaction for Claude Code) instead of accumulating duplicates. Sessions
+  still being written (mtime < 60 s) are skipped. Verified: two consecutive
+  Claude Code backfills over the real install leave `tool_calls`, `turns` and
+  `token_snapshots` unchanged.
 - Percentiles are computed in JS over the (bounded) per-session duration lists
   rather than in SQL — no window-function SQLite version concerns, and the
   lists are small.

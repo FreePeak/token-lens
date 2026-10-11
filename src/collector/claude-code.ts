@@ -414,6 +414,10 @@ export function parseClaudeCodeSessionFile(
       : null;
 
   metricsDb.transaction(() => {
+    // Re-import replaces, not appends: tool_calls has no natural key and a
+    // resumed transcript grows, so clear this session's rows inside the same
+    // transaction that rewrites them. (Same rule as agent-backfill.ts.)
+    metricsDb.run(`DELETE FROM tool_calls WHERE conversation_id = ?`, [sessionId!]);
     upsertSession(metricsDb, {
       conversation_id: sessionId!,
       title: firstPrompt,

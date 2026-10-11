@@ -202,6 +202,21 @@ function textFromContent(content: unknown): string {
   return parts.join("\n").trim();
 }
 
+/** Extract text from a tool_result block's `content` (string or block array). */
+function toolResultText(block: unknown): string {
+  if (!block || typeof block !== "object") return "";
+  const content = (block as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const c of content) {
+    if (c && typeof c === "object" && typeof (c as { text?: unknown }).text === "string") {
+      parts.push((c as { text: string }).text);
+    }
+  }
+  return parts.join("\n");
+}
+
 function toolDisplayName(name: string, input: unknown): string {
   const params = typeof input === "string" ? input : input != null ? JSON.stringify(input) : null;
   return normalizeToolLabel(name, { params });
@@ -238,6 +253,12 @@ export function parseClaudeCodeSessionFile(
   let userCount = 0;
   let assistantCount = 0;
   let toolSeen = new Set<string>();
+  /** tool_use id → pending call; resolved when its tool_result arrives. */
+  const pendingToolCalls = new Map<
+    string,
+    { toolName: string; input: unknown; created_at: number; generation_id: string }
+  >();
+  const toolCallRows: Array<() => void> = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!.trim();
@@ -266,6 +287,41 @@ export function parseClaudeCodeSessionFile(
       const isToolResult =
         Array.isArray(messageContent) &&
         messageContent.some((c) => c?.type === "tool_result");
+      if (isToolResult) {
+        // Pair each tool_result with its tool_use for duration + success.
+        const at = ts ?? lastTs ?? Date.now();
+        for (const block of messageContent as Array<Record<string, unknown>>) {
+          if (block?.type !== "tool_result") continue;
+          const useId = typeof block.tool_use_id === "string" ? block.tool_use_id : null;
+          const pending = useId ? pendingToolCalls.get(useId) : undefined;
+          if (!pending) continue;
+          const isError = block.is_error === true;
+          const text = toolResultText(block);
+          if (!toolSeen.has(`${pending.generation_id}:${pending.toolName}`)) {
+            toolSeen.add(`${pending.generation_id}:${pending.toolName}`);
+            const convId = sessionId ?? "unknown";
+            toolCallRows.push(() =>
+              insertToolCall(metricsDb, {
+                conversation_id: convId,
+                generation_id: pending.generation_id,
+                tool_name: toolDisplayName(pending.toolName, pending.input),
+                duration_ms: Math.max(0, at - pending.created_at),
+                success: !isError,
+                created_at: pending.created_at,
+                request:
+                  typeof pending.input === "string"
+                    ? pending.input
+                    : pending.input != null
+                      ? JSON.stringify(pending.input)
+                      : null,
+                response: text || null,
+              }),
+            );
+          }
+          pendingToolCalls.delete(useId!);
+        }
+        continue;
+      }
       const text = textFromContent(messageContent);
       if (!isToolResult && text) {
         const cleaned = text.replace(/\s+/g, " ").trim();
@@ -338,15 +394,14 @@ export function parseClaudeCodeSessionFile(
         const dedupe = `${snapGen}:${label}`;
         if (toolSeen.has(dedupe)) continue;
         toolSeen.add(dedupe);
-        writes.push(() =>
-          insertToolCall(metricsDb, {
-            conversation_id: id,
-            generation_id: snapGen,
-            tool_name: label,
-            success: true,
-            created_at: at,
-          }),
-        );
+        // Latency + result come from the paired tool_result on a later `user`
+        // line; keep them in this map and resolve after the full pass.
+        pendingToolCalls.set(b.id ?? dedupe, {
+          toolName: b.name,
+          input: b.input ?? null,
+          created_at: at,
+          generation_id: snapGen,
+        });
       }
     }
   }
@@ -375,6 +430,7 @@ export function parseClaudeCodeSessionFile(
       last_backfilled_at: lastTs ?? Date.now(),
     });
     for (const w of writes) w();
+    for (const w of toolCallRows) w();
   })();
 
   return { ok: true };

@@ -78,7 +78,7 @@ await run("backfillOpenCode with no install runs cleanly against in-memory DB", 
 
 await run("listTools returns all registered tools", () => {
   const ids = listTools().map((t) => t.id);
-  assert.deepEqual(ids, ["cursor", "claude-code", "opencode"]);
+  assert.deepEqual(ids, ["cursor", "claude-code", "opencode", "xdev", "omp", "pi"]);
 });
 
 await run("unknown tool id returns undefined", () => {

@@ -1,6 +1,7 @@
 import { cursorTool } from "./cursor";
 import { claudeCodeTool } from "./claude-code";
 import { openCodeTool } from "./opencode";
+import { ompTool, piTool, xdevTool } from "./agents";
 import type { Tool } from "./types";
 
 const registry: Tool[] = [];
@@ -21,3 +22,6 @@ export function listTools(): Tool[] {
 registerTool(cursorTool);
 registerTool(claudeCodeTool);
 registerTool(openCodeTool);
+registerTool(xdevTool);
+registerTool(ompTool);
+registerTool(piTool);

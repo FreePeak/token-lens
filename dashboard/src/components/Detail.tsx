@@ -17,6 +17,7 @@ import { ArrowLeft } from "lucide-react";
 import { TurnTable } from "./TurnTable";
 import { ContextEventsTimeline } from "./ContextEventsTimeline";
 import { CopyPathButton } from "./CopyPathButton";
+import { TranscriptCard } from "./TranscriptReplay";
 
 export function Detail({
   id,
@@ -170,6 +171,8 @@ export function Detail({
           <TurnTable detail={d} />
         </CardContent>
       </Card>
+
+      <TranscriptCard detail={d} />
 
       <ContextEventsTimeline detail={d} />
     </div>

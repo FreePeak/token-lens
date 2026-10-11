@@ -61,8 +61,13 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   generation_id TEXT,
   tool_name TEXT NOT NULL,
   duration_ms INTEGER,
+  ttfb_ms INTEGER,
   success INTEGER NOT NULL DEFAULT 1,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  request TEXT,
+  response TEXT,
+  response_bytes INTEGER,
+  truncated INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_tool_calls_conv ON tool_calls(conversation_id);
@@ -225,6 +230,24 @@ function migrate(db: Database): void {
   addTurnCol("model", "model TEXT");
   addTurnCol("estimated", "estimated INTEGER NOT NULL DEFAULT 0");
   addTurnCol("prompt", "prompt TEXT");
+  addTurnCol("ttft_ms", "ttft_ms INTEGER");
+  addTurnCol("duration_ms", "duration_ms INTEGER");
+
+  // tool_calls latency + body capture
+  const tcCols = new Set(
+    (db.query(`PRAGMA table_info(tool_calls)`).all() as Array<{ name: string }>).map((c) => c.name),
+  );
+  const addToolCallCol = (name: string, ddl: string) => {
+    if (!tcCols.has(name)) db.exec(`ALTER TABLE tool_calls ADD COLUMN ${ddl}`);
+  };
+  addToolCallCol("ttfb_ms", "ttfb_ms INTEGER");
+  addToolCallCol("request", "request TEXT");
+  addToolCallCol("response", "response TEXT");
+  addToolCallCol("response_bytes", "response_bytes INTEGER");
+  addToolCallCol("truncated", "truncated INTEGER NOT NULL DEFAULT 0");
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_tool_calls_success ON tool_calls(conversation_id, success)`,
+  );
 }
 
 export function openMetricsDb(path = METRICS_DB_PATH): Database {

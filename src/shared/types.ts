@@ -4,6 +4,7 @@ export type SessionRollup = {
   title: string | null;
   workspace: string | null;
   workspace_path: string | null;
+  source_path: string | null;
   model: string | null;
   mode: string | null;
   started_at: number | null;
@@ -59,6 +60,8 @@ export type SessionDetail = SessionRollup & {
     output_tokens?: number;
     cache_read_tokens?: number;
     cache_write_tokens?: number;
+    ttft_ms?: number | null;
+    duration_ms?: number | null;
     total_tokens?: number;
     total_cost_usd?: number;
     model?: string | null;
@@ -88,6 +91,7 @@ export type SessionDetail = SessionRollup & {
     context_window_size: number | null;
     created_at: number | null;
   }>;
+  tool_calls: ToolCallRow[];
   root_causes?: RootCauseEvent[];
 };
 
@@ -145,3 +149,43 @@ export type HookPayload = {
   cache_write_tokens?: number;
   [key: string]: unknown;
 };
+
+export type SessionLatencyRow = {
+  conversation_id: string;
+  tool_calls: number;
+  failures: number;
+  total_ms: number;
+  p50_ms: number | null;
+  p90_ms: number | null;
+  p99_ms: number | null;
+  max_ms: number | null;
+  avg_ttfb_ms: number | null;
+};
+
+/** One tool call as replayed in the transcript view. */
+export type ToolCallRow = {
+  id: number;
+  tool_name: string;
+  duration_ms: number | null;
+  ttfb_ms: number | null;
+  success: number;
+  created_at: number;
+  request: string | null;
+  response: string | null;
+  response_bytes: number | null;
+  truncated: number;
+};
+
+/** Latency + volume rollup for the charts. */
+export type LatencyStats = {
+  tool_calls: number;
+  failures: number;
+  total_ms: number;
+  p50_ms: number | null;
+  p90_ms: number | null;
+  p99_ms: number | null;
+  max_ms: number | null;
+  avg_ttfb_ms: number | null;
+};
+
+export type LatencyByTool = LatencyStats & { tool_name: string };

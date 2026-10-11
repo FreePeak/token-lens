@@ -7,6 +7,11 @@ import {
   listSessions,
   type SessionSort,
 } from "../db/queries";
+import {
+  getLatencyByTool,
+  getLatencyStats,
+  getSessionLatency,
+} from "../db/queries";
 import { getOverviewCached } from "../db/overview-cache";
 
 function cors(res: Response): Response {
@@ -91,6 +96,15 @@ export function startServer(
           return json({ error: "by must be tool|model|workspace" }, 400);
         }
         return json(getDrivers(db, dim, sinceMs(url), profile(url)));
+      }
+      if (url.pathname === "/api/latency") {
+        return json(getLatencyStats(db));
+      }
+      if (url.pathname === "/api/latency/by-tool") {
+        return json(getLatencyByTool(db));
+      }
+      if (url.pathname === "/api/latency/sessions") {
+        return json(getSessionLatency(db, sinceMs(url), profile(url)));
       }
 
       // Static dashboard

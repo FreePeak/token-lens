@@ -161,7 +161,7 @@ Run `bun run <script>` or `make <target>` for the equivalent Makefile targets.
 |---|---|---|---|---|
 | **Cursor** | ✅ Complete | ✅ | ✅ | ✅ (dashboard API) |
 | **Claude Code** | ✅ Complete | ✅ | ✅ (settings.json) | — (tokens from JSONL) |
-| **OpenCode** | ✅ Complete | ✅ (sqlite) | 🟡 Use backfill | — (tokens from session row) |
+| **OpenCode** | ✅ Complete | ✅ (sqlite) | ✅ (plugin) | — (tokens from session row) |
 
 Adding a tool = create `src/tools/<id>.ts` implementing the `Tool` interface and register it. The CLI, dashboard, and cron pick it up automatically.
 
@@ -169,7 +169,7 @@ Adding a tool = create `src/tools/<id>.ts` implementing the `Tool` interface and
 
 - **Cursor** — SQLite `state.vscdb` (`bubbleId:*` KV rows + `composerHeaders`) + `~/.cursor/hooks.json` + the dashboard `/api/.../get-filtered-usage-events` API for cache tokens.
 - **Claude Code** — JSONL files at `~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl` (full message log with usage + tool_use blocks) + `~/.claude/settings.json` for live hooks.
-- **OpenCode** — `~/.local/share/opencode/opencode.db` (`session` + `message` + `part` tables; tokens & cost are pre-aggregated per session, `part.type='tool'` rows for tool calls).
+- **OpenCode** — `~/.local/share/opencode/opencode.db` (`session` + `message` + `part` tables; tokens & cost are pre-aggregated per session, `part.type='tool'` rows for tool calls) + `~/.config/opencode/plugins/token-lens.ts` for live capture.
 
 To scope the backfill to one tool:
 
@@ -243,7 +243,7 @@ Token Lens is designed around a hard privacy boundary:
 ## Roadmap
 
 - [ ] Claude Code live usage sync (no separate API; JSONL has everything)
-- [ ] OpenCode live hooks (no plugin protocol today; backfill covers it)
+- [x] OpenCode live hooks — shipped in v0.3.0 via `~/.config/opencode/plugins/token-lens.ts` (plugin event bridge to `hook --tool opencode`)
 - [ ] Export to shareable reports
 - [ ] Plugin system for custom cost models
 - [ ] Alerts (weekly budget report, unusual spend detection)

@@ -5,6 +5,10 @@ import { Detail } from "./Detail";
 import { api } from "../api";
 import type { SessionDetail } from "../api";
 
+vi.mock("./TranscriptReplay", () => ({
+  TranscriptCard: () => <div data-testid="transcript-card" />,
+}));
+
 vi.mock("../api", () => ({
   api: {
     session: vi.fn(),
@@ -20,6 +24,7 @@ const mockDetail: SessionDetail = {
   title: "Test session",
   workspace: "hash123",
   workspace_path: "/Users/test/work/project",
+  source_path: "/Users/test/.cursor/User/globalStorage/state.vscdb#composer/abc-123",
   model: "claude-sonnet-4-20250514",
   mode: "agent",
   started_at: 1722000000000,
@@ -37,6 +42,7 @@ const mockDetail: SessionDetail = {
   tools: [{ tool_name: "read", count: 3, failures: 0 }],
   token_snapshots: [{ bubble_id: "b1", input_tokens: 500, output_tokens: 200, context_tokens: null, model: "claude", created_at: 1722000000000, prompt: "hello" }],
   context_events: [],
+  tool_calls: [],
 };
 
 describe("Detail copy button", () => {

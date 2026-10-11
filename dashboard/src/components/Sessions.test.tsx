@@ -8,11 +8,13 @@ import type { SessionRollup } from "../api";
 vi.mock("../api", () => ({
   api: {
     sessions: vi.fn(),
+    latency: vi.fn(() => Promise.resolve([])),
   },
   fmtCost: vi.fn((n: number) => `$${n.toFixed(2)}`),
   fmtDate: vi.fn((ms: number | null) => (ms ? "Jul 30, 14:30" : "—")),
   fmtDuration: vi.fn((ms: number | null) => (ms ? "1m30s" : "—")),
   fmtNum: vi.fn((n: number) => String(Math.round(n))),
+  fmtLatency: vi.fn((ms: number | null) => (ms == null ? "—" : `${ms}ms`)),
   shortTitle: vi.fn((s: SessionRollup) => s.title ?? s.workspace_path ?? s.workspace ?? "unknown"),
 }));
 
@@ -21,6 +23,7 @@ const mockSession: SessionRollup = {
   title: "Test session",
   workspace: "hash123",
   workspace_path: "/Users/test/work/project",
+  source_path: "/Users/test/.cursor/User/globalStorage/state.vscdb#composer/abc-123",
   model: "claude-sonnet-4-20250514",
   mode: "agent",
   started_at: 1722000000000,

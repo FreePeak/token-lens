@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, fmtCost, fmtDate, fmtDuration, fmtNum, shortTitle, type SessionRollup, type SessionSort } from "../api";
+import {
+  api,
+  fmtCost,
+  fmtDate,
+  fmtDuration,
+  fmtLatency,
+  fmtNum,
+  shortTitle,
+  type SessionRollup,
+  type SessionSort,
+} from "../api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -12,6 +22,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
+import { CopyPathButton } from "./CopyPathButton";
 
 export function Sessions({
   days,
@@ -43,6 +54,20 @@ export function Sessions({
       return true;
     });
   }, [rows, leankgOnly]);
+
+  // p50 tool latency per session — one extra request, computed server-side.
+  const [p50ByConv, setP50ByConv] = useState<Record<string, number | null>>({});
+  useEffect(() => {
+    onError(null);
+    api
+      .latency(days, profile)
+      .then((rows) => {
+        const m: Record<string, number | null> = {};
+        for (const r of rows) m[r.conversation_id] = r.p50_ms;
+        setP50ByConv(m);
+      })
+      .catch(() => setP50ByConv({}));
+  }, [days, profile, onError]);
 
   const sortLabel =
     sortBy === "date" ? "date (newest first)" : sortBy === "cost" ? "est. cost" : "duration";
@@ -109,6 +134,8 @@ export function Sessions({
                 <TableHead>LeanKG</TableHead>
                 <TableHead className="text-right font-mono">Turns</TableHead>
                 <TableHead className="text-right font-mono">Tools</TableHead>
+                <TableHead className="text-right font-mono">P50 tool</TableHead>
+                <TableHead className="text-right font-mono">Search</TableHead>
                 <TableHead className="text-right font-mono">Search</TableHead>
                 <TableHead className="text-right font-mono">Reads</TableHead>
                 <TableHead className="text-right font-mono">In</TableHead>
@@ -125,7 +152,12 @@ export function Sessions({
                   onClick={() => onOpen(r.conversation_id)}
                 >
                   <TableCell className="max-w-48 truncate font-medium">
-                    {shortTitle(r)}
+                    <span className="inline-flex items-center gap-1">
+                      {shortTitle(r)}
+                      <span onClick={(e) => e.stopPropagation()}>
+                        <CopyPathButton path={r.source_path ?? r.workspace_path} />
+                      </span>
+                    </span>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-xs">{fmtDate(r.started_at)}</TableCell>
                   <TableCell className="text-muted-foreground text-xs">{r.model ?? "—"}</TableCell>
@@ -140,7 +172,7 @@ export function Sessions({
                   </TableCell>
                   <TableCell className="text-right font-mono tabular-nums">{fmtNum(r.num_turns)}</TableCell>
                   <TableCell className="text-right font-mono tabular-nums">{fmtNum(r.tool_calls)}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{fmtNum(r.search_calls ?? 0)}</TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">{fmtLatency(p50ByConv[r.conversation_id])}</TableCell>
                   <TableCell className="text-right font-mono tabular-nums">{fmtNum(r.file_reads)}</TableCell>
                   <TableCell className="text-right font-mono tabular-nums">
                     {r.tokens_estimated ? "~" : ""}

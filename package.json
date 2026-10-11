@@ -1,7 +1,7 @@
 {
   "name": "token-lens",
-  "version": "0.2.0",
-  "description": "Local-only dashboard for AI coding sessions. Track turns, tokens, cost across Cursor, Claude Code, and OpenCode. All data stays on your machine.",
+  "version": "0.3.0",
+  "description": "Local-only dashboard for AI coding sessions. Track turns, tokens, cost and tool-call latency across Cursor, Claude Code, OpenCode, xdev, omp and pi. All data stays on your machine.",
   "type": "module",
   "license": "MIT",
   "homepage": "https://github.com/FreePeak/token-lens#readme",
@@ -16,6 +16,9 @@
     "cursor",
     "claude-code",
     "opencode",
+    "xdev",
+    "omp",
+    "pi",
     "ai-coding",
     "token-tracking",
     "llm-cost",
@@ -50,6 +53,9 @@
     "prices:fetch": "bun run scripts/fetch-prices.ts",
     "prices:sync": "bun run scripts/fetch-prices.ts --apply",
     "dev": "bun run scripts/dev.ts"
+  },
+  "dependencies": {
+    "@assistant-ui/react": "^0.15.27"
   },
   "devDependencies": {
     "@types/bun": "latest",

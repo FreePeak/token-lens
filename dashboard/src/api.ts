@@ -1,13 +1,41 @@
-import type { SessionRollup, OverviewStats, DriverRow, SessionDetail } from "../../src/shared/types";
+import type {
+  DriverRow,
+  LatencyByTool,
+  LatencyStats,
+  OverviewStats,
+  SessionDetail,
+  SessionRollup,
+} from "../../src/shared/types";
 
-export type { SessionRollup, OverviewStats, DriverRow, SessionDetail };
+export type { SessionRollup, OverviewStats, DriverRow, SessionDetail, LatencyStats, LatencyByTool };
 
 export type SessionSort = "date" | "cost" | "duration";
+
+/** One row of the per-session latency table (maps to a conversation). */
+export type SessionLatencyRow = {
+  conversation_id: string;
+  tool_calls: number;
+  failures: number;
+  total_ms: number;
+  p50_ms: number | null;
+  p90_ms: number | null;
+  p99_ms: number | null;
+  max_ms: number | null;
+  avg_ttfb_ms: number | null;
+};
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error(`${res.status} ${path}`);
   return res.json() as Promise<T>;
+}
+
+function params(opts: { days?: number; profile?: string; sort?: SessionSort }): string {
+  const p: string[] = [];
+  if (opts.days != null) p.push(`days=${opts.days}`);
+  if (opts.profile) p.push(`profile=${encodeURIComponent(opts.profile)}`);
+  if (opts.sort && opts.sort !== "date") p.push(`sort=${opts.sort}`);
+  return p.join("&");
 }
 
 export const api = {
@@ -19,21 +47,25 @@ export const api = {
   session: (id: string) => get<SessionDetail>(`/api/sessions/${encodeURIComponent(id)}`),
   drivers: (by: "tool" | "model" | "workspace", days?: number, profile?: string) =>
     get<DriverRow[]>(`/api/drivers?by=${by}&${params({ days, profile })}`),
+  latency: (days?: number, profile?: string) =>
+    get<LatencyStats>(`/api/latency?${params({ days, profile })}`),
+  latencyByTool: (days?: number, profile?: string) =>
+    get<LatencyByTool[]>(`/api/latency/by-tool?${params({ days, profile })}`),
+  sessionLatency: (days?: number, profile?: string) =>
+    get<SessionLatencyRow[]>(`/api/latency/sessions?${params({ days, profile })}`),
 };
-
-function params(opts: { days?: number; profile?: string; sort?: SessionSort }): string {
-  const p: string[] = [];
-  if (opts.days != null) p.push(`days=${opts.days}`);
-  if (opts.profile) p.push(`profile=${encodeURIComponent(opts.profile)}`);
-  if (opts.sort && opts.sort !== "date") p.push(`sort=${opts.sort}`);
-  return p.join("&");
-}
 
 export function fmtNum(n: number): string {
   if (!Number.isFinite(n)) return "—";
   if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
   if (Math.abs(n) >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(Math.round(n));
+}
+
+export function fmtLatency(ms: number | null): string {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
 }
 
 export function fmtCost(n: number): string {
@@ -65,7 +97,7 @@ export function fmtDate(ms: number | null): string {
   });
 }
 
-export function shortTitle(s: SessionRollup): string {
+export function shortTitle(s: { title?: string | null; workspace?: string | null; workspace_path?: string | null; conversation_id: string }): string {
   if (s.title?.trim()) return s.title.trim().slice(0, 80);
   if (s.workspace) {
     const parts = s.workspace.replace(/\\/g, "/").split("/");

@@ -11,6 +11,7 @@ import { Overview } from "./components/Overview";
 import { Sessions } from "./components/Sessions";
 import { Drivers } from "./components/Drivers";
 import { Detail } from "./components/Detail";
+import { LatencyCharts } from "./components/LatencyCharts";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -54,7 +55,7 @@ function useFilters(): {
   return { days, profile, setDays, setProfile };
 }
 
-function Header({ active }: { active: "overview" | "sessions" | "drivers" }) {
+function Header({ active }: { active: "overview" | "sessions" | "drivers" | "latency" }) {
   return (
     <header className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b border-border">
       <h1 className="text-xl font-semibold tracking-tight">Token Lens</h1>
@@ -79,6 +80,13 @@ function Header({ active }: { active: "overview" | "sessions" | "drivers" }) {
           size="sm"
         >
           <Link to="/drivers">Drivers</Link>
+        </Button>
+        <Button
+          asChild
+          variant={active === "latency" ? "default" : "ghost"}
+          size="sm"
+        >
+          <Link to="/latency">Latency</Link>
         </Button>
       </nav>
     </header>
@@ -150,7 +158,7 @@ function Shell({
   setError,
   children,
 }: {
-  active: "overview" | "sessions" | "drivers";
+  active: "overview" | "sessions" | "drivers" | "latency";
   days: DaysFilter;
   profile: ProfileFilter;
   setDays: (v: DaysFilter) => void;
@@ -234,7 +242,30 @@ function SessionsPage() {
   );
 }
 
-function DriversPage() {
+function LatencyPage() {
+  const { days, profile, setDays, setProfile } = useFilters();
+  const [profiles, setProfiles] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api.profiles().then(setProfiles).catch((e) => setError(String(e)));
+  }, []);
+  return (
+    <Shell
+      active="latency"
+      days={days}
+      profile={profile}
+      setDays={setDays}
+      setProfile={setProfile}
+      profiles={profiles}
+      error={error}
+      setError={setError}
+    >
+      <LatencyCharts days={days} profile={profile} onError={setError} />
+    </Shell>
+  );
+}
+
+function DetailPage() {
   const { days, profile, setDays, setProfile } = useFilters();
   const [profiles, setProfiles] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -257,7 +288,7 @@ function DriversPage() {
   );
 }
 
-function DetailPage() {
+function SessionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { days, profile, setDays, setProfile } = useFilters();
   const [profiles, setProfiles] = useState<string[]>([]);
@@ -292,7 +323,8 @@ export function App() {
     <Routes>
       <Route path="/" element={<OverviewPage />} />
       <Route path="/sessions" element={<SessionsPage />} />
-      <Route path="/sessions/:id" element={<DetailPage />} />
+      <Route path="/sessions/:id" element={<SessionDetailPage />} />
+      <Route path="/latency" element={<LatencyPage />} />
       <Route path="/drivers" element={<DriversPage />} />
     </Routes>
   );

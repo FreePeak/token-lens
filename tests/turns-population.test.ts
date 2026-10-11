@@ -3,6 +3,8 @@
 import { strict as assert } from "assert";
 import { openMetricsDb } from "../src/db/schema";
 import {
+  getSessionDetail,
+  recomputeRollup,
   recomputeTurn,
   recordTurn,
   upsertSession,
@@ -192,6 +194,63 @@ test("recomputeTurn leaves estimated flag 0 unless any snapshot is estimated", (
     // recomputeTurn sums all matching snapshots; recordTurn maxes across calls.
     assert.equal(t.input_tokens, 3000);
     assert.equal(t.output_tokens, 300);
+  } finally {
+    db.close();
+  }
+});
+
+test("getSessionDetail enriches stub turns from token_snapshots (query-layer fix)", () => {
+  const db = newDb();
+  try {
+    seedSession(db, "c1");
+    const model = "claude-sonnet-4-5-20250929";
+    // Collectors write status-only stub turns; real cost lives in snapshots.
+    upsertTurn(db, { conversation_id: "c1", generation_id: "g1", status: "responded" });
+    upsertTurn(db, { conversation_id: "c1", generation_id: "g2", status: "responded" });
+    upsertTokenSnapshot(db, {
+      conversation_id: "c1",
+      bubble_id: "g1",
+      generation_id: "g1",
+      input_tokens: 4000,
+      output_tokens: 800,
+      cache_read_tokens: 200,
+      cache_write_tokens: 0,
+      model,
+      created_at: 1,
+    });
+    // bubble_id == generation_id (plain snapshot, generation_id NULL)
+    upsertTokenSnapshot(db, {
+      conversation_id: "c1",
+      bubble_id: "g2",
+      input_tokens: 1000,
+      output_tokens: 100,
+      model,
+      created_at: 2,
+    });
+    // g3 has no snapshots → remains a stubbed row (no snapshot, no fill).
+    upsertTurn(db, { conversation_id: "c1", generation_id: "g3", status: "responded" });
+    recomputeRollup(db, "c1"); // produces the session_rollups row detail requires
+
+    const detail = getSessionDetail(db, "c1");
+    assert.ok(detail, "detail should resolve");
+    const byGen = new Map(detail!.turns.map((t) => [t.generation_id, t]));
+
+    const g1 = byGen.get("g1")!;
+    assert.equal(g1.input_tokens, 4000);
+    assert.equal(g1.output_tokens, 800);
+    assert.equal(g1.cache_read_tokens, 200);
+    assert.equal(g1.total_tokens, 5000);
+    assert.equal(g1.model, model);
+    const expG1 = estimateCostUsd(model, 4000, 800, 200, 0);
+    assert.ok(Math.abs((g1.total_cost_usd ?? 0) - expG1) < 1e-9);
+
+    const g2 = byGen.get("g2")!;
+    assert.equal(g2.input_tokens, 1000, "matches via bubble_id == generation_id");
+    assert.equal(g2.output_tokens, 100);
+
+    const g3 = byGen.get("g3")!;
+    assert.equal(g3.input_tokens, 0, "no snapshot → stays stub");
+    assert.equal(g3.total_cost_usd, 0);
   } finally {
     db.close();
   }

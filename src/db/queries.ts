@@ -26,6 +26,7 @@ export function upsertSession(
     title?: string | null;
     workspace?: string | null;
     workspace_path?: string | null;
+    source_path?: string | null;
     model?: string | null;
     mode?: string | null;
     started_at?: number | null;
@@ -38,12 +39,13 @@ export function upsertSession(
   },
 ): void {
   db.run(
-    `INSERT INTO sessions (conversation_id, title, workspace, workspace_path, model, mode, started_at, ended_at, duration_ms, source, first_prompt, profile, last_backfilled_at)
-     VALUES ($id, $title, $ws, $wsp, $model, $mode, $start, $end, $dur, $source, $fp, $profile, $lba)
+    `INSERT INTO sessions (conversation_id, title, workspace, workspace_path, source_path, model, mode, started_at, ended_at, duration_ms, source, first_prompt, profile, last_backfilled_at)
+     VALUES ($id, $title, $ws, $wsp, $sp, $model, $mode, $start, $end, $dur, $source, $fp, $profile, $lba)
      ON CONFLICT(conversation_id) DO UPDATE SET
        title = COALESCE(excluded.title, sessions.title),
        workspace = COALESCE(excluded.workspace, sessions.workspace),
        workspace_path = COALESCE(excluded.workspace_path, sessions.workspace_path),
+       source_path = COALESCE(excluded.source_path, sessions.source_path),
        model = COALESCE(excluded.model, sessions.model),
        mode = COALESCE(excluded.mode, sessions.mode),
        started_at = COALESCE(sessions.started_at, excluded.started_at),
@@ -59,6 +61,7 @@ export function upsertSession(
       $title: row.title ?? null,
       $ws: row.workspace ?? null,
       $wsp: row.workspace_path ?? null,
+      $sp: row.source_path ?? null,
       $model: row.model ?? null,
       $mode: row.mode ?? null,
       $start: row.started_at ?? null,
@@ -477,15 +480,16 @@ export function recomputeRollup(db: Database, conversationId: string): void {
 
   db.run(
     `INSERT INTO session_rollups (
-       conversation_id, title, workspace, workspace_path, model, mode, started_at, ended_at, duration_ms,
+       conversation_id, title, workspace, workspace_path, source_path, model, mode, started_at, ended_at, duration_ms,
        num_turns, tool_calls, file_reads, input_tokens, output_tokens, total_tokens, total_cost_usd,
        tokens_estimated, used_leankg, leankg_calls, search_calls, first_prompt, cache_reads, cache_writes, profile
-     ) VALUES ($id, $title, $ws, $wsp, $model, $mode, $start, $end, $dur, $turns, $tools, $reads, $in, $out, $tot, $cost,
+     ) VALUES ($id, $title, $ws, $wsp, $sp, $model, $mode, $start, $end, $dur, $turns, $tools, $reads, $in, $out, $tot, $cost,
        $est, $lk, $lkc, $sc, $fp, $cr, $cw, $profile)
      ON CONFLICT(conversation_id) DO UPDATE SET
        title = excluded.title,
        workspace = excluded.workspace,
        workspace_path = excluded.workspace_path,
+       source_path = excluded.source_path,
        model = excluded.model,
        mode = excluded.mode,
        started_at = excluded.started_at,
@@ -511,6 +515,7 @@ export function recomputeRollup(db: Database, conversationId: string): void {
       $title: session.title ?? null,
       $ws: session.workspace ?? null,
       $wsp: session.workspace_path ?? null,
+      $sp: (session.source_path as string | null) ?? null,
       $model: sessionModel,
       $mode: session.mode ?? null,
       $start: started,
@@ -614,16 +619,81 @@ export function getSessionDetail(db: Database, conversationId: string): SessionD
     .get(conversationId) as SessionRollup | null;
   if (!rollup) return null;
 
-  const turns = db
+  // Enrich stub turn rows with per-generation token_snapshots cost. Collectors
+  // write status-only turns rows and leave real token counts in token_snapshots
+  // (recomputeTurn has no callers), so a plain SELECT from `turns` renders an
+  // empty table. Match rule mirrors recomputeTurn: snapshot generation_id or
+  // (for legacy/plain snapshots, generation_id NULL) bubble_id == turn gen.
+  const turns = (db
     .query(
-      `SELECT generation_id, status, started_at, ended_at,
-              input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-              total_tokens, total_cost_usd, model, estimated, prompt
-         FROM turns
-        WHERE conversation_id = ?
-        ORDER BY COALESCE(ended_at, started_at, 0)`,
+      `WITH snap AS (
+         SELECT conversation_id,
+                COALESCE(generation_id, bubble_id) AS gen,
+                SUM(input_tokens)      AS input_tokens,
+                SUM(output_tokens)     AS output_tokens,
+                SUM(cache_read_tokens) AS cache_read_tokens,
+                SUM(cache_write_tokens) AS cache_write_tokens,
+                MAX(estimated)         AS any_est,
+                MAX(COALESCE(model, '')) AS model
+           FROM token_snapshots
+          GROUP BY conversation_id, COALESCE(generation_id, bubble_id)
+       )
+       SELECT t.generation_id, t.status, t.started_at, t.ended_at, t.prompt,
+              t.input_tokens, t.output_tokens, t.cache_read_tokens,
+              t.cache_write_tokens, t.total_cost_usd, t.estimated, t.model,
+              s.input_tokens AS si, s.output_tokens AS so,
+              s.cache_read_tokens AS scr, s.cache_write_tokens AS scw,
+              s.any_est, s.model AS s_model
+         FROM turns t
+         LEFT JOIN snap s ON s.conversation_id = t.conversation_id
+                          AND s.gen = t.generation_id
+        WHERE t.conversation_id = ?
+        ORDER BY COALESCE(t.ended_at, t.started_at, 0)`,
     )
-    .all(conversationId) as SessionDetail["turns"];
+    .all(conversationId) as Array<{
+    generation_id: string;
+    status: string | null;
+    started_at: number | null;
+    ended_at: number | null;
+    prompt: string | null;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    cache_read_tokens: number | null;
+    cache_write_tokens: number | null;
+    total_cost_usd: number | null;
+    estimated: number | null;
+    model: string | null;
+    si: number | null;
+    so: number | null;
+    scr: number | null;
+    scw: number | null;
+    any_est: number | null;
+    s_model: string | null;
+  }>).map((t) => {
+    // Snapshot aggregate carries the real cost (turn stubs are all zeros/null).
+    const hasSnap = t.si != null && t.si > 0;
+    const input = hasSnap ? t.si! : (t.input_tokens ?? 0);
+    const output = hasSnap ? t.so! : (t.output_tokens ?? 0);
+    const cr = hasSnap ? t.scr! : (t.cache_read_tokens ?? 0);
+    const cw = hasSnap ? t.scw! : (t.cache_write_tokens ?? 0);
+    const model = hasSnap ? t.s_model || null : t.model;
+    const estimated = hasSnap ? t.any_est ?? 0 : (t.estimated ?? 0);
+    return {
+      generation_id: t.generation_id,
+      status: t.status,
+      started_at: t.started_at,
+      ended_at: t.ended_at,
+      prompt: t.prompt,
+      input_tokens: input,
+      output_tokens: output,
+      cache_read_tokens: cr,
+      cache_write_tokens: cw,
+      total_tokens: input + output + cr + cw,
+      total_cost_usd: estimateCostUsd(model, input, output, cr, cw),
+      model,
+      estimated,
+    };
+  });
 
   const tools = db
     .query(

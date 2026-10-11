@@ -16,6 +16,7 @@ import {
 import { ArrowLeft } from "lucide-react";
 import { TurnTable } from "./TurnTable";
 import { ContextEventsTimeline } from "./ContextEventsTimeline";
+import { CopyPathButton } from "./CopyPathButton";
 
 export function Detail({
   id,
@@ -65,10 +66,13 @@ export function Detail({
 
   return (
     <div className="animate-fade-in space-y-6">
-      <Button variant="ghost" size="sm" onClick={onBack} className="-ml-2">
-        <ArrowLeft className="h-4 w-4 mr-1" />
-        Sessions
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="sm" onClick={onBack} className="-ml-2">
+          <ArrowLeft className="h-4 w-4 mr-1" />
+          Sessions
+        </Button>
+        <CopyPathButton path={d.source_path ?? d.workspace_path ?? d.conversation_id} />
+      </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <Stat label="Session" value={shortTitle(d)} />

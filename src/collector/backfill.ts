@@ -537,6 +537,7 @@ export async function backfillFromCursor(
           title: c.title,
           workspace: c.workspaceId,
           workspace_path: c.workspaceId ? (workspacePaths.get(c.workspaceId) ?? null) : null,
+          source_path: statePath,
           model: c.model,
           mode: c.mode,
           started_at: c.createdAt,

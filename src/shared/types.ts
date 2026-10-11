@@ -4,6 +4,7 @@ export type SessionRollup = {
   title: string | null;
   workspace: string | null;
   workspace_path: string | null;
+  source_path: string | null;
   model: string | null;
   mode: string | null;
   started_at: number | null;

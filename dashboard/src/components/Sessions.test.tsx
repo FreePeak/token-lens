@@ -21,6 +21,7 @@ const mockSession: SessionRollup = {
   title: "Test session",
   workspace: "hash123",
   workspace_path: "/Users/test/work/project",
+  source_path: "/Users/test/.cursor/User/globalStorage/state.vscdb#composer/abc-123",
   model: "claude-sonnet-4-20250514",
   mode: "agent",
   started_at: 1722000000000,

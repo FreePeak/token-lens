@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   title TEXT,
   workspace TEXT,
   workspace_path TEXT,
+  source_path TEXT,
   model TEXT,
   mode TEXT,
   started_at INTEGER,
@@ -99,6 +100,7 @@ CREATE TABLE IF NOT EXISTS session_rollups (
   title TEXT,
   workspace TEXT,
   workspace_path TEXT,
+  source_path TEXT,
   model TEXT,
   mode TEXT,
   started_at INTEGER,
@@ -196,12 +198,16 @@ function migrate(db: Database): void {
   if (!scols.has("last_backfilled_at")) {
     db.exec(`ALTER TABLE sessions ADD COLUMN last_backfilled_at INTEGER`);
   }
+  if (!scols.has("source_path")) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN source_path TEXT`);
+  }
   add("first_prompt", "first_prompt TEXT");
   add("profile", "profile TEXT");
   // session_rollups.cache_reads / cache_writes = SUM of prompt-cache tokens (not event counts)
   add("cache_reads", "cache_reads INTEGER NOT NULL DEFAULT 0");
   add("cache_writes", "cache_writes INTEGER NOT NULL DEFAULT 0");
   add("workspace_path", "workspace_path TEXT");
+  add("source_path", "source_path TEXT");
 
   // turns cost columns (Release 1)
   const turnColsSet = new Set(

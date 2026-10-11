@@ -364,6 +364,7 @@ export function parseClaudeCodeSessionFile(
       title: firstPrompt,
       workspace: root.encodedDir,
       workspace_path: cwd ?? root.decodedDir,
+      source_path: jsonlPath,
       model,
       started_at: startedAt,
       ended_at: lastTs,

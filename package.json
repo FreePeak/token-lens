@@ -1,6 +1,6 @@
 {
   "name": "token-lens",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local-only dashboard for AI coding sessions. Track turns, tokens, cost across Cursor, Claude Code, and OpenCode. All data stays on your machine.",
   "type": "module",
   "license": "MIT",
